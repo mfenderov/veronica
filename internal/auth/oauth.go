@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -120,11 +122,14 @@ func (m *OAuthManager) RefreshToken(ctx context.Context, cfg domain.OAuthClientC
 }
 
 // ExchangeCode exchanges an OAuth authorization code for access and refresh tokens.
-func (m *OAuthManager) ExchangeCode(ctx context.Context, cfg domain.OAuthClientConfig, code string) (*domain.AuthToken, error) {
+func (m *OAuthManager) ExchangeCode(ctx context.Context, cfg domain.OAuthClientConfig, code string, verifier ...string) (*domain.AuthToken, error) {
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
 	data.Set("redirect_uri", cfg.RedirectURL)
+	if len(verifier) > 0 && verifier[0] != "" {
+		data.Set("code_verifier", verifier[0])
+	}
 	addClientCredentials(data, cfg)
 
 	tokenResp, err := m.requestToken(ctx, cfg.TokenURL, data, cfg)
@@ -200,18 +205,18 @@ func (m *OAuthManager) StartInteractiveFlow(ctx context.Context, cfg domain.OAut
 		return nil, errors.New("auth_url is required for interactive OAuth flow")
 	}
 
-	code, err := m.runInteractiveConsent(ctx, cfg)
+	code, verifier, err := m.runInteractiveConsent(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return m.ExchangeCode(ctx, cfg, code)
+	return m.ExchangeCode(ctx, cfg, code, verifier)
 }
 
-func (m *OAuthManager) runInteractiveConsent(ctx context.Context, cfg domain.OAuthClientConfig) (string, error) {
+func (m *OAuthManager) runInteractiveConsent(ctx context.Context, cfg domain.OAuthClientConfig) (string, string, error) {
 	cbServer, actualRedirect, err := m.startCallbackServer(cfg.RedirectURL)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer func() {
 		_ = cbServer.Stop(context.Background())
@@ -219,12 +224,18 @@ func (m *OAuthManager) runInteractiveConsent(ctx context.Context, cfg domain.OAu
 
 	cfg.RedirectURL = actualRedirect
 	state := generateRandomState()
+	verifier := generateCodeVerifier()
+	challenge := generateCodeChallenge(verifier)
 
-	if err := m.launchConsentBrowser(cfg, state); err != nil {
-		return "", err
+	if err := m.launchConsentBrowser(cfg, state, challenge); err != nil {
+		return "", "", err
 	}
 
-	return m.waitForValidatedCode(ctx, cbServer, state)
+	code, err := m.waitForValidatedCode(ctx, cbServer, state)
+	if err != nil {
+		return "", "", err
+	}
+	return code, verifier, nil
 }
 
 func (m *OAuthManager) startCallbackServer(redirectURL string) (*CallbackServer, string, error) {
@@ -241,8 +252,8 @@ func (m *OAuthManager) startCallbackServer(redirectURL string) (*CallbackServer,
 	return cbServer, redirectURL, nil
 }
 
-func (m *OAuthManager) launchConsentBrowser(cfg domain.OAuthClientConfig, state string) error {
-	authURL, err := buildAuthorizeURL(cfg, state)
+func (m *OAuthManager) launchConsentBrowser(cfg domain.OAuthClientConfig, state, codeChallenge string) error {
+	authURL, err := buildAuthorizeURL(cfg, state, codeChallenge)
 	if err != nil {
 		return fmt.Errorf("failed to build auth url: %w", err)
 	}
@@ -281,7 +292,18 @@ func generateRandomState() string {
 	return hex.EncodeToString(b)
 }
 
-func buildAuthorizeURL(cfg domain.OAuthClientConfig, state string) (string, error) {
+func generateCodeVerifier() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func generateCodeChallenge(verifier string) string {
+	h := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(h[:])
+}
+
+func buildAuthorizeURL(cfg domain.OAuthClientConfig, state, codeChallenge string) (string, error) {
 	u, err := url.Parse(cfg.AuthURL)
 	if err != nil {
 		return "", err
@@ -295,12 +317,15 @@ func buildAuthorizeURL(cfg domain.OAuthClientConfig, state string) (string, erro
 	if state != "" {
 		q.Set("state", state)
 	}
+	if codeChallenge != "" {
+		q.Set("code_challenge", codeChallenge)
+		q.Set("code_challenge_method", "S256")
+	}
 	if len(cfg.Scopes) > 0 {
 		q.Set("scope", strings.Join(cfg.Scopes, " "))
 	}
-	if strings.Contains(cfg.AuthURL, "atlassian.com") {
-		q.Set("audience", "api.atlassian.com")
-		q.Set("prompt", "consent")
+	for k, v := range cfg.AuthParams {
+		q.Set(k, v)
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil

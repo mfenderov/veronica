@@ -49,6 +49,7 @@ func (s *CallbackServer) Start() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/callback", s.handleCallback)
+	mux.HandleFunc("/callback", s.handleCallback)
 
 	s.server = &http.Server{Handler: mux}
 	go func() {

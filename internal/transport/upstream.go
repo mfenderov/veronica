@@ -13,6 +13,11 @@ import (
 	"github.com/mfenderov/veronica/internal/registry"
 )
 
+type customToolEntry struct {
+	tool    domain.Tool
+	handler func(ctx context.Context, args any) (domain.ToolResult, error)
+}
+
 // UpstreamServer is the MCP gateway server exposing aggregated and custom tools over HTTP, SSE, and Stdio.
 type UpstreamServer struct {
 	mu          sync.RWMutex
@@ -20,7 +25,7 @@ type UpstreamServer struct {
 	sseServer   *server.SSEServer
 	streamable  *server.StreamableHTTPServer
 	registry    *registry.Registry
-	customTools map[string]func(ctx context.Context, args any) (domain.ToolResult, error)
+	customTools map[string]customToolEntry
 	httpServer  *http.Server
 }
 
@@ -35,7 +40,7 @@ func NewUpstreamServer(reg *registry.Registry) *UpstreamServer {
 		sseServer:   sse,
 		streamable:  streamable,
 		registry:    reg,
-		customTools: make(map[string]func(ctx context.Context, args any) (domain.ToolResult, error)),
+		customTools: make(map[string]customToolEntry),
 	}
 
 	reg.OnToolsChanged(func() {
@@ -72,7 +77,10 @@ func (u *UpstreamServer) RegisterCustomTool(
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	u.customTools[tool.Name] = handler
+	u.customTools[tool.Name] = customToolEntry{
+		tool:    tool,
+		handler: handler,
+	}
 	u.syncToolsLocked()
 }
 
@@ -83,12 +91,21 @@ func (u *UpstreamServer) syncTools() {
 }
 
 func (u *UpstreamServer) syncToolsLocked() {
-	// Re-register custom tools
-	for name, handler := range u.customTools {
-		toolName := name
-		h := handler
+	u.registerCustomToolsLocked()
+	u.registerDownstreamToolsLocked()
+	u.mcpServer.SendNotificationToAllClients(mcp.MethodNotificationToolsListChanged, nil)
+}
+
+func (u *UpstreamServer) registerCustomToolsLocked() {
+	for _, entry := range u.customTools {
+		desc := entry.tool.Description
+		if desc == "" {
+			desc = "Veronica custom tool"
+		}
+		tool := createMCPTool(entry.tool.Name, desc, entry.tool.InputSchema)
+		h := entry.handler
 		u.mcpServer.AddTool(
-			mcp.NewTool(toolName, mcp.WithDescription("Veronica custom tool")),
+			tool,
 			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				res, err := h(ctx, req.Params.Arguments)
 				if err != nil {
@@ -98,12 +115,14 @@ func (u *UpstreamServer) syncToolsLocked() {
 			},
 		)
 	}
+}
 
-	// Register downstream aggregated tools from registry
+func (u *UpstreamServer) registerDownstreamToolsLocked() {
 	for _, dt := range u.registry.ListTools() {
 		downstreamToolName := dt.Name
+		tool := createMCPTool(downstreamToolName, dt.Description, dt.InputSchema)
 		u.mcpServer.AddTool(
-			mcp.NewTool(downstreamToolName, mcp.WithDescription(dt.Description)),
+			tool,
 			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				call := domain.ToolCall{
 					ToolName:  downstreamToolName,
@@ -117,8 +136,21 @@ func (u *UpstreamServer) syncToolsLocked() {
 			},
 		)
 	}
+}
 
-	u.mcpServer.SendNotificationToAllClients(mcp.MethodNotificationToolsListChanged, nil)
+func createMCPTool(name, description string, schema any) mcp.Tool {
+	if schema != nil {
+		if b, ok := schema.([]byte); ok && len(b) > 0 {
+			return mcp.NewToolWithRawSchema(name, description, b)
+		}
+		if raw, ok := schema.(json.RawMessage); ok && len(raw) > 0 {
+			return mcp.NewToolWithRawSchema(name, description, raw)
+		}
+		if b, err := json.Marshal(schema); err == nil && len(b) > 0 {
+			return mcp.NewToolWithRawSchema(name, description, b)
+		}
+	}
+	return mcp.NewTool(name, mcp.WithDescription(description))
 }
 
 func toMCPResult(res domain.ToolResult) *mcp.CallToolResult {

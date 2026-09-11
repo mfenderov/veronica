@@ -173,3 +173,77 @@ func TestUpstreamServer_ConcurrentLoad(t *testing.T) {
 		t.Fatalf("%d out of 50 concurrent requests failed", errCount)
 	}
 }
+
+func TestUpstreamServer_PreservesToolSchemaAndDescription(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	upstream := transport.NewUpstreamServer(reg)
+
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"module_name": map[string]any{"type": "string"},
+		},
+		"required": []string{"module_name"},
+	}
+
+	upstream.RegisterCustomTool(
+		domain.Tool{
+			Name:        "custom_inspect",
+			Description: "Custom inspect tool with schema",
+			InputSchema: schema,
+		},
+		func(ctx context.Context, args any) (domain.ToolResult, error) {
+			return transport.ResultText("inspected"), nil
+		},
+	)
+
+	httpSrv := httptest.NewServer(upstream.Handler())
+	defer httpSrv.Close()
+
+	mcpClient, err := client.NewSSEMCPClient(httpSrv.URL + "/sse")
+	if err != nil {
+		t.Fatalf("NewSSEMCPClient failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	if err := mcpClient.Start(ctx); err != nil {
+		t.Fatalf("client.Start failed: %v", err)
+	}
+	defer func() {
+		_ = mcpClient.Close()
+	}()
+
+	initReq := mcp.InitializeRequest{
+		Params: mcp.InitializeParams{
+			ClientInfo: mcp.Implementation{Name: "schema-client", Version: "1.0"},
+		},
+	}
+	if _, err := mcpClient.Initialize(ctx, initReq); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	toolsRes, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("ListTools failed: %v", err)
+	}
+
+	for _, tool := range toolsRes.Tools {
+		if tool.Name == "custom_inspect" {
+			if tool.Description != "Custom inspect tool with schema" {
+				t.Fatalf("expected custom description, got: %s", tool.Description)
+			}
+			if tool.InputSchema.Type != "object" {
+				t.Fatalf("expected object type schema, got: %s", tool.InputSchema.Type)
+			}
+			if tool.InputSchema.Properties == nil || tool.InputSchema.Properties["module_name"] == nil {
+				t.Fatalf("expected module_name property in schema, got: %+v", tool.InputSchema.Properties)
+			}
+			return
+		}
+	}
+	t.Fatal("custom_inspect tool not found")
+}
