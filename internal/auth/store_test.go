@@ -3,6 +3,7 @@ package auth_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -178,6 +179,74 @@ func TestOAuthManagerExchangeCode(t *testing.T) {
 	}
 	if token.RefreshToken != "exchanged-refresh-token" {
 		t.Fatalf("expected exchanged-refresh-token, got %s", token.RefreshToken)
+	}
+}
+
+func TestOAuthManagerStartInteractiveFlow(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "auth.json")
+	store, err := auth.NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	mockAuthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"access_token": "interactive-access-token",
+			"refresh_token": "interactive-refresh-token",
+			"expires_in": 3600,
+			"token_type": "Bearer"
+		}`))
+	}))
+	defer mockAuthServer.Close()
+
+	oauthMgr := auth.NewOAuthManager(store, http.DefaultClient)
+
+	// Intercept browser launch and simulate user granting consent
+	restore := auth.SetOpenBrowserFnForTesting(func(targetURL string) error {
+		u, err := url.Parse(targetURL)
+		if err != nil {
+			return err
+		}
+		redirectURI := u.Query().Get("redirect_uri")
+		state := u.Query().Get("state")
+
+		// Send redirect callback to local listener
+		callbackURL := redirectURI + "?code=interactive-code-456&state=" + state
+		go func() {
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, callbackURL, http.NoBody)
+			if err != nil {
+				return
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+		}()
+		return nil
+	})
+	defer restore()
+
+	cfg := domain.OAuthClientConfig{
+		ServerName:  "atlassian",
+		ClientID:    "client-test-id",
+		AuthURL:     "https://auth.atlassian.com/authorize",
+		TokenURL:    mockAuthServer.URL,
+		RedirectURL: "http://127.0.0.1:0/oauth/callback", // dynamic port for test
+		Scopes:      []string{"read:jira-work", "read:jira:agent-interface"},
+	}
+
+	token, err := oauthMgr.StartInteractiveFlow(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("StartInteractiveFlow failed: %v", err)
+	}
+
+	if token.AccessToken != "interactive-access-token" {
+		t.Fatalf("expected interactive-access-token, got %s", token.AccessToken)
+	}
+	if token.RefreshToken != "interactive-refresh-token" {
+		t.Fatalf("expected interactive-refresh-token, got %s", token.RefreshToken)
 	}
 }
 

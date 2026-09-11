@@ -46,4 +46,5 @@ type TokenProvider interface {
 	GetToken(ctx context.Context, serverName string) (*AuthToken, error)
 	EnsureValidToken(ctx context.Context, cfg OAuthClientConfig) (*AuthToken, error)
 	RefreshToken(ctx context.Context, cfg OAuthClientConfig, refreshToken string) (*AuthToken, error)
+	StartInteractiveFlow(ctx context.Context, cfg OAuthClientConfig) (*AuthToken, error)
 }
