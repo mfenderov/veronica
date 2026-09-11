@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.4.3 - 2026-09-11
+#### Documentation
+- consolidate architecture documentation into AGENTS.md and remove CLAUDE.md - (14d5b29) - Mark Fenderov
+
+- - -
+
 ## v0.4.2 - 2026-09-11
 #### Documentation
 - add AGENTS.md guide for autonomous coding agents - (c32015e) - Mark Fenderov
