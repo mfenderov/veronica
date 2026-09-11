@@ -68,6 +68,18 @@ func (r *Registry) Register(mod *domain.Module, client domain.DownstreamClient) 
 	return nil
 }
 
+// RegisterError registers a module that failed to start, preserving its presence in the registry with error status.
+func (r *Registry) RegisterError(mod *domain.Module, err error) {
+	r.mu.Lock()
+	r.modules[mod.Name] = mod
+	delete(r.clients, mod.Name)
+	mod.MarkError(err.Error())
+	r.rebuildCatalogLocked()
+	r.mu.Unlock()
+
+	r.notifyListeners()
+}
+
 // Unregister removes a module and its client from the registry, stopping the client process.
 func (r *Registry) Unregister(name string) error {
 	r.mu.Lock()
