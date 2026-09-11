@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -181,17 +182,19 @@ func mountAllModules(ctx context.Context, cfg *config.Config, factory *downstrea
 }
 
 func mountSingleModule(ctx context.Context, modCfg domain.ModuleConfig, factory *downstreamFactory, reg *registry.Registry, quiet bool) {
-	if modCfg.Disabled {
-		return
-	}
-	cli, err := startModuleClient(ctx, modCfg, factory)
-	if err != nil {
-		logModuleWarn(quiet, err)
+	if modCfg.Disabled || strings.TrimSpace(modCfg.Name) == "" {
 		return
 	}
 	mod := domain.NewModule(modCfg)
+	cli, err := startModuleClient(ctx, modCfg, factory)
+	if err != nil {
+		logModuleWarn(quiet, err)
+		reg.RegisterError(mod, err)
+		return
+	}
 	if err := reg.Register(mod, cli); err != nil {
 		logModuleWarn(quiet, fmt.Errorf("register %s: %w", modCfg.Name, err))
+		reg.RegisterError(mod, err)
 		return
 	}
 	if !quiet {

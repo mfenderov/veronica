@@ -269,8 +269,12 @@ func TestMountSingleModule_Enabled_Error(t *testing.T) {
 
 	mountSingleModule(t.Context(), cfg, factory, reg, true)
 
-	if len(reg.ListModules()) != 0 {
-		t.Fatalf("expected 0 modules mounted when start fails, got %d", len(reg.ListModules()))
+	modules := reg.ListModules()
+	if len(modules) != 1 {
+		t.Fatalf("expected 1 module registered in error state, got %d", len(modules))
+	}
+	if modules[0].Status != domain.StatusError {
+		t.Fatalf("expected module status error, got %s", modules[0].Status)
 	}
 }
 
