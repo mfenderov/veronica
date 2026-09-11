@@ -68,11 +68,23 @@ Download pre-built universal binary archives for macOS (`darwin/arm64`, `darwin/
 │  - 🔐 Central Auth & OAuth Engine (:9091)              │
 │  - 🔀 Thread-Safe Router & Dynamic Catalog             │
 │  - 🔌 Stdio Supervisor & Remote SSE/HTTP Client        │
-└──────┬────────────┬─────────────┬─────────────┬────────┘
-       ▼            ▼             ▼             ▼
-   [mark42]    [markitdown]    [atlassian]   [slack]
-   [context7]  [honeycomb (on-demand)]
+└──────┬────────────────────────────┬────────────────────┘
+       ▼                            ▼
+ [Local Stdio MCPs]         [Remote HTTP/SSE MCPs]
+ - Node CLIs (npx)          - Streamable HTTP
+ - Python CLIs (uvx)        - Server-Sent Events (SSE)
+ - Native Go/Rust binaries  - OAuth 2.0 / Bearer Auth
 ```
+
+---
+
+## Universal MCP Support
+
+Veronica is completely agnostic to downstream implementations and supports any MCP-compliant server:
+
+- **Local Stdio MCPs**: Any executable command (`npx`, `uvx`, custom binaries, scripts) communicating over standard JSON-RPC. Veronica supervises processes, monitors memory, and restarts failed instances.
+- **Remote HTTP & SSE MCPs**: Connects to remote endpoints over both modern Streamable HTTP (POST) and legacy Server-Sent Events (GET), automatically injecting dynamic OAuth Bearer tokens and custom headers.
+- **On-Demand Toggling**: Keep modules configured but paused (`disabled: true`). Activate them in seconds via the TUI or when your agent calls `veronica_toggle_module`, keeping your prompt context small and fast.
 
 ---
 
@@ -96,19 +108,6 @@ veronica tui
 | **`d`** | **Recall** | Gracefully unmount and remove the selected module |
 | **`r`** | **Refresh** | Re-query daemon metrics and reload module catalog |
 | **`q`** or **`Ctrl+C`** | **Quit** | Exit the TUI |
-
----
-
-## Active & Managed Modules
-
-| Module | Transport | Source | Status | Tools Exposed |
-| :--- | :--- | :--- | :--- | :--- |
-| **`mark42`** | stdio | `/opt/homebrew/bin/mark42-server` | Active | Persistent memory graph, session recall (`mark42_*`) |
-| **`atlassian`** | http | `https://mcp.atlassian.com/v2/mcp` | Active | Jira issues, JQL, Confluence pages & search (`atlassian_*`) |
-| **`slack`** | http | `https://mcp.slack.com/mcp` | Active | Channels, threads, messages, user profiles (`slack_*`) |
-| **`markitdown`** | stdio | `uvx markitdown-mcp==0.0.1a4` | Active | Document/media to markdown conversion (`convert_to_markdown`) |
-| **`context7`** | stdio | `npx @upstash/context7-mcp` | Active | Framework & library documentation (`context7_*`) |
-| **`honeycomb`** | stdio | `npx mcp-remote https://mcp.honeycomb.io/mcp` | On-Demand | Distributed tracing (deployable via `veronica_deploy_module`) |
 
 ---
 
@@ -139,6 +138,58 @@ veronica list
 # Show version
 veronica version
 ```
+
+## End-to-End Walkthrough: OpenCode + Mark42 via Veronica
+
+Here is a complete, real-world example showing how to mount a memory tool (`mark42`) into Veronica and query it from **OpenCode** with zero manual tool configuration in OpenCode:
+
+### 1. Launch the Veronica Daemon
+```bash
+veronica serve
+# [veronica] 🛰️ Veronica gateway listening on :9090/sse
+```
+*(Or keep it running 24/7 in the background as a macOS LaunchAgent).*
+
+### 2. Mount Mark42 into Veronica
+Mount your MCP server using the TUI (`veronica tui` -> press `a`), or add it directly to `~/.config/veronica/config.yaml`:
+
+```yaml
+modules:
+  mark42:
+    name: mark42
+    transport: stdio
+    command: /opt/homebrew/bin/mark42-server
+```
+
+Veronica immediately spawns Mark42, introspects its capabilities, and mounts its tools (`mark42_search_nodes`, `mark42_read_graph`, etc.) into the live catalog.
+
+### 3. Connect OpenCode to Veronica (Once)
+In `~/.config/opencode/opencode.jsonc`, point OpenCode to Veronica:
+
+```jsonc
+{
+  "mcp": {
+    "veronica": {
+      "type": "remote",
+      "url": "http://localhost:9090/sse"
+    }
+  }
+}
+```
+*You never have to edit OpenCode's configuration again when adding, updating, or removing tools.*
+
+### 4. Query Mark42 from OpenCode
+Open your OpenCode chat and ask:
+
+> *"What architecture decisions do we have recorded for our Go microservices?"*
+
+**Behind the Scenes:**
+1. OpenCode issues an MCP tool call: `mark42_search_nodes(query="Go microservices")`.
+2. Veronica catches the request on `:9090/sse` and routes it over stdio JSON-RPC to the supervised `mark42-server` process.
+3. Mark42 queries its local knowledge graph and returns the entities.
+4. Veronica delivers the payload back to OpenCode's context window with sub-millisecond dispatch.
+
+---
 
 ## Client Configurations
 
