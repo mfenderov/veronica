@@ -62,12 +62,12 @@ func TestDownstreamHTTPClient(t *testing.T) {
 	}
 
 	authStore := &dummyAuthStore{}
-	client, err := transport.NewDownstreamClient(context.Background(), cfg, authStore)
+	client, err := transport.NewDownstreamClient(t.Context(), cfg, authStore)
 	if err != nil {
 		t.Fatalf("NewDownstreamClient failed: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	err = client.Start(ctx)
@@ -75,7 +75,7 @@ func TestDownstreamHTTPClient(t *testing.T) {
 		t.Fatalf("client.Start failed: %v", err)
 	}
 	defer func() {
-		_ = client.Stop(context.Background())
+		_ = client.Stop(t.Context())
 	}()
 
 	// 3. List tools
@@ -126,12 +126,12 @@ func TestDownstreamStreamableHTTPClient(t *testing.T) {
 	authStore := &dummyAuthStore{
 		mockToken: &domain.AuthToken{AccessToken: "test-oauth-token"},
 	}
-	client, err := transport.NewDownstreamClient(context.Background(), cfg, authStore)
+	client, err := transport.NewDownstreamClient(t.Context(), cfg, authStore)
 	if err != nil {
 		t.Fatalf("NewDownstreamClient failed: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	err = client.Start(ctx)
@@ -139,7 +139,7 @@ func TestDownstreamStreamableHTTPClient(t *testing.T) {
 		t.Fatalf("client.Start failed: %v", err)
 	}
 	defer func() {
-		_ = client.Stop(context.Background())
+		_ = client.Stop(t.Context())
 	}()
 
 	// 3. List tools
@@ -203,19 +203,19 @@ func main() {
 		Command:   binPath,
 	}
 
-	client, err := transport.NewDownstreamClient(context.Background(), cfg, nil)
+	client, err := transport.NewDownstreamClient(t.Context(), cfg, nil)
 	if err != nil {
 		t.Fatalf("NewDownstreamClient failed: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	if err := client.Start(ctx); err != nil {
 		t.Fatalf("client.Start failed: %v", err)
 	}
 	defer func() {
-		_ = client.Stop(context.Background())
+		_ = client.Stop(t.Context())
 	}()
 
 	tools, err := client.ListTools(ctx)

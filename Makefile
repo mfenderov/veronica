@@ -1,4 +1,4 @@
-.PHONY: build test test-coverage crap lint fmt tidy clean install
+.PHONY: build test test-coverage crap lint fmt fix tidy clean install
 
 BINARY=veronica
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -12,7 +12,7 @@ build:
 ## Test
 
 test:
-	go test -v -race ./...
+	go test -v -race -shuffle=on ./...
 
 test-coverage:
 	go test -coverprofile=coverage.out ./...
@@ -34,8 +34,11 @@ lint:
 fmt:
 	go fmt ./...
 
+fix:
+	go fix ./...
+
 tidy:
-	go mod tidy
+	go mod tidy && go mod tidy --diff
 
 ## Clean
 

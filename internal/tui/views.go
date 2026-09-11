@@ -189,7 +189,7 @@ func (m Model) renderFormModal() string {
 	var b strings.Builder
 	title := "🛰️  DEPLOY NEW MCP MODULE"
 	if m.mode == modeEdit {
-		title = fmt.Sprintf("✏️  EDIT MODULE: %s", m.nameInput.Value())
+		title = "✏️  EDIT MODULE: " + m.nameInput.Value()
 	}
 	b.WriteString(modalTitle.Render(title) + "\n\n")
 

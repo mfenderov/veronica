@@ -3,15 +3,20 @@ run:
   tests: true
 linters:
   enable:
+    - bodyclose
     - containedctx
     - copyloopvar
     - errcheck
+    - errorlint
+    - forbidigo
     - gocritic
     - govet
     - ineffassign
     - misspell
     - nakedret
     - nolintlint
+    - perfsprint
+    - recvcheck
     - revive
     - staticcheck
     - unconvert
@@ -19,6 +24,22 @@ linters:
     - unused
     - usestdlibvars
   settings:
+    forbidigo:
+      forbid:
+        - pattern: context\.Background()
+          msg: "do not use context.Background() in tests, use t.Context()"
+        - pattern: context\.TODO()
+          msg: "do not use context.TODO() in tests, use t.Context()"
+        - pattern: os\.MkdirTemp()
+          msg: "do not use os.MkdirTemp() in tests, use t.TempDir()"
+        - pattern: os\.Setenv()
+          msg: "do not use os.Setenv() in tests, use t.Setenv()"
+        - pattern: os\.Chdir()
+          msg: "do not use os.Chdir() in tests, use t.Chdir()"
+        - pattern: fmt\.Print.*()
+          msg: "do not use fmt.Print() or fmt.Println() in tests"
+        - pattern: time\.Sleep
+          msg: "do not sleep in tests: synchronize on channels or events"
     errcheck:
       check-type-assertions: false
       check-blank: false
@@ -55,3 +76,7 @@ linters:
     presets:
       - comments
       - std-error-handling
+    rules:
+      - path-except: _test\.go
+        linters:
+          - forbidigo

@@ -48,7 +48,7 @@ func TestMetaToolsLifecycle(t *testing.T) {
 	factory := &mockClientFactory{}
 	handler := meta.NewHandler(reg, store, factory)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// 1. Initial list modules should be empty
 	res, err := handler.ListModules(ctx)
@@ -118,7 +118,7 @@ func TestMetaToolsToggle(t *testing.T) {
 	factory := &mockClientFactory{}
 	handler := meta.NewHandler(reg, store, factory)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Deploy module
 	_, err := handler.DeployModule(ctx, meta.DeployParams{
@@ -163,7 +163,7 @@ func TestMetaToolsReauth(t *testing.T) {
 	factory := &mockClientFactory{}
 	handler := meta.NewHandler(reg, store, factory)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// 1. Reauth non-existent module -> ErrModuleNotFound
 	_, err := handler.ReauthModule(ctx, "nonexistent")
@@ -214,7 +214,7 @@ func TestMetaToolsRestartDaemon(t *testing.T) {
 	factory := &mockClientFactory{}
 	handler := meta.NewHandler(reg, store, factory)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = handler.DeployModule(ctx, meta.DeployParams{
 		Name:      "test-mod",

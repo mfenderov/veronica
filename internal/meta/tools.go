@@ -186,7 +186,7 @@ func (h *Handler) ReauthModule(ctx context.Context, name string) (domain.ReauthR
 		Name:      name,
 		Success:   true,
 		ExpiresAt: tok.ExpiresAt,
-		Message:   fmt.Sprintf("Auth re-triggered for %s", name),
+		Message:   "Auth re-triggered for " + name,
 	}, nil
 }
 

@@ -97,7 +97,7 @@ func TestRegistryRegisterAndList(t *testing.T) {
 	}
 
 	// Verify namespaced tool routing
-	res, err := reg.CallTool(context.Background(), domain.ToolCall{
+	res, err := reg.CallTool(t.Context(), domain.ToolCall{
 		ToolName: "mark42_search_nodes",
 	})
 	if err != nil {
@@ -108,7 +108,7 @@ func TestRegistryRegisterAndList(t *testing.T) {
 	}
 
 	// Verify fallback tool routing
-	res2, err := reg.CallTool(context.Background(), domain.ToolCall{
+	res2, err := reg.CallTool(t.Context(), domain.ToolCall{
 		ToolName: "search_nodes",
 	})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestRegistryRegisterAndList(t *testing.T) {
 	}
 
 	// Verify unknown tool
-	_, err = reg.CallTool(context.Background(), domain.ToolCall{
+	_, err = reg.CallTool(t.Context(), domain.ToolCall{
 		ToolName: "unknown_tool",
 	})
 	if !errors.Is(err, domain.ErrToolNotFound) {
@@ -165,7 +165,7 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 			_ = reg.Register(mod, client)
 			_ = reg.ListModules()
 			_ = reg.ListTools()
-			_, _ = reg.CallTool(context.Background(), domain.ToolCall{ToolName: "tool"})
+			_, _ = reg.CallTool(t.Context(), domain.ToolCall{ToolName: "tool"})
 			_ = reg.Unregister("mod")
 		}()
 	}

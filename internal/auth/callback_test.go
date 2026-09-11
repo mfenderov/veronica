@@ -18,7 +18,7 @@ func TestOAuthCallbackServer(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 	defer func() {
-		_ = cbServer.Stop(context.Background())
+		_ = cbServer.Stop(t.Context())
 	}()
 
 	addr := cbServer.Addr()
@@ -26,16 +26,19 @@ func TestOAuthCallbackServer(t *testing.T) {
 		t.Fatal("expected non-empty addr")
 	}
 
-	// Trigger callback HTTP GET
+	// Trigger callback HTTP GET using test context
 	go func() {
-		time.Sleep(50 * time.Millisecond)
-		resp, err := http.Get("http://" + addr + "/oauth/callback?code=test-code-123&state=state-abc")
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/oauth/callback?code=test-code-123&state=state-abc", http.NoBody)
+		if err != nil {
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	result, err := cbServer.WaitForCode(ctx)

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -249,7 +248,7 @@ func TestMountSingleModule_Disabled(t *testing.T) {
 	reg := registry.New()
 	factory := &downstreamFactory{}
 
-	mountSingleModule(context.Background(), cfg, factory, reg, true)
+	mountSingleModule(t.Context(), cfg, factory, reg, true)
 
 	if len(reg.ListModules()) != 0 {
 		t.Fatalf("expected 0 modules mounted when disabled, got %d", len(reg.ListModules()))
@@ -268,7 +267,7 @@ func TestMountSingleModule_Enabled_Error(t *testing.T) {
 	reg := registry.New()
 	factory := &downstreamFactory{}
 
-	mountSingleModule(context.Background(), cfg, factory, reg, true)
+	mountSingleModule(t.Context(), cfg, factory, reg, true)
 
 	if len(reg.ListModules()) != 0 {
 		t.Fatalf("expected 0 modules mounted when start fails, got %d", len(reg.ListModules()))
@@ -286,7 +285,7 @@ func TestMountSingleModule_InvalidConfig(t *testing.T) {
 	reg := registry.New()
 	factory := &downstreamFactory{}
 
-	mountSingleModule(context.Background(), cfg, factory, reg, true)
+	mountSingleModule(t.Context(), cfg, factory, reg, true)
 }
 
 func TestLogModuleWarn(t *testing.T) {
