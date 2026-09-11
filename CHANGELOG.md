@@ -2,6 +2,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.4.4 - 2026-09-11
+#### Documentation
+- remove Tony Stark quote from README - (84e2eec) - Mark Fenderov
+- simplify configuration documentation to reflect zero-boilerplate design - (768e588) - Mark Fenderov
+
+- - -
+
 ## v0.4.3 - 2026-09-11
 #### Documentation
 - consolidate architecture documentation into AGENTS.md and remove CLAUDE.md - (14d5b29) - Mark Fenderov
