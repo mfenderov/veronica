@@ -138,7 +138,7 @@ func TestRemotePodClient(t *testing.T) {
 		t.Fatalf("NewRemotePodClient failed: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	if err := remote.Connect(ctx); err != nil {
@@ -254,14 +254,14 @@ func TestRemotePodClient_ConnectionSurvivesConnectContextCancel(t *testing.T) {
 	}
 	defer remote.Close()
 
-	connectCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	connectCtx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	if err := remote.Connect(connectCtx); err != nil {
 		t.Fatalf("Connect failed: %v", err)
 	}
 	cancel() // Cancel the connect context immediately!
 
 	// Subsequent call with fresh context must still succeed
-	callCtx, callCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	callCtx, callCancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer callCancel()
 
 	_, err = remote.Status(callCtx)

@@ -5,7 +5,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 on:
   workflow_dispatch:
@@ -25,7 +25,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - run: go tool golangci-lint run
+      - name: Linter
+        run: go tool golangci-lint run
+
+      - name: Verify tidy dependencies
+        run: go mod tidy --diff >/dev/null || (echo 'go.mod/go.sum are not tidy' && exit 1)
 
   test:
     runs-on: ubuntu-latest
@@ -36,7 +40,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - run: go test -v -race ./...
+      - name: Test (race detector + randomized order)
+        run: go test -v -race -shuffle=on ./...
 
       - name: CRAP gate
         run: make crap

@@ -40,7 +40,7 @@ func TestUpstreamServer(t *testing.T) {
 		t.Fatalf("NewSSEMCPClient failed: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	if err := mcpClient.Start(ctx); err != nil {
@@ -107,7 +107,7 @@ func TestUpstreamServerStreamablePost(t *testing.T) {
 	initPayload := []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"vscode","version":"1.0"},"capabilities":{}}}`)
 
 	for _, endpoint := range []string{"/sse", "/mcp"} {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, httpSrv.URL+endpoint, bytes.NewReader(initPayload))
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, httpSrv.URL+endpoint, bytes.NewReader(initPayload))
 		if err != nil {
 			t.Fatalf("failed to create req for %s: %v", endpoint, err)
 		}
@@ -147,7 +147,7 @@ func TestUpstreamServer_ConcurrentLoad(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, httpSrv.URL+"/sse", bytes.NewReader(initPayload))
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, httpSrv.URL+"/sse", bytes.NewReader(initPayload))
 			if err != nil {
 				mu.Lock()
 				errCount++

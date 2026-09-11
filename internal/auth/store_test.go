@@ -1,7 +1,6 @@
 package auth_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,7 +23,7 @@ func TestFileAuthStore(t *testing.T) {
 		t.Fatalf("NewFileStore failed: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Initial empty
 	tok, err := store.GetToken(ctx, "slack")
@@ -110,7 +109,7 @@ func TestOAuthManagerRefresh(t *testing.T) {
 
 	oauthMgr := auth.NewOAuthManager(store, http.DefaultClient)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	expiringToken := domain.AuthToken{
 		ServerName:   "slack",
 		AccessToken:  "old-token",
@@ -169,7 +168,7 @@ func TestOAuthManagerExchangeCode(t *testing.T) {
 		TokenURL:    mockAuthServer.URL,
 	}
 
-	token, err := oauthMgr.ExchangeCode(context.Background(), cfg, "auth-code-xyz")
+	token, err := oauthMgr.ExchangeCode(t.Context(), cfg, "auth-code-xyz")
 	if err != nil {
 		t.Fatalf("ExchangeCode failed: %v", err)
 	}
@@ -221,7 +220,7 @@ func TestFileAuthStoreMigrationFromOpencode(t *testing.T) {
 		t.Fatalf("ImportFromOpenCode failed: %v", err)
 	}
 
-	tok, err := store.GetToken(context.Background(), "slack")
+	tok, err := store.GetToken(t.Context(), "slack")
 	if err != nil {
 		t.Fatalf("GetToken failed: %v", err)
 	}
@@ -229,7 +228,7 @@ func TestFileAuthStoreMigrationFromOpencode(t *testing.T) {
 		t.Fatalf("failed to import opencode slack token: got %+v", tok)
 	}
 
-	atlassianTok, err := store.GetToken(context.Background(), "atlassian")
+	atlassianTok, err := store.GetToken(t.Context(), "atlassian")
 	if err != nil {
 		t.Fatalf("GetToken atlassian failed: %v", err)
 	}

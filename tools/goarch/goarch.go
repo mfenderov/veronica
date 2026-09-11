@@ -2,7 +2,7 @@
 package goarch
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,7 +117,7 @@ func findModuleDir(start string) (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("go.mod not found")
+			return "", errors.New("go.mod not found")
 		}
 		dir = parent
 	}
@@ -133,7 +133,7 @@ func findModulePath(dir string) (string, error) {
 			return strings.TrimSpace(mod), nil
 		}
 	}
-	return "", fmt.Errorf("module directive not found in go.mod")
+	return "", errors.New("module directive not found in go.mod")
 }
 
 func loadInternalImports(dir, modulePath, pkg string) ([]string, error) {
