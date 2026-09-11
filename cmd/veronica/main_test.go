@@ -207,6 +207,47 @@ func TestPopulateDefaultModules(t *testing.T) {
 	}
 }
 
+func TestPopulateDefaultModules_OAuthEndpointsValid(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.DefaultConfig()
+	populateDefaultModules(cfg)
+
+	atlassian, ok := cfg.Modules["atlassian"]
+	if !ok {
+		t.Fatal("expected atlassian module in default config")
+	}
+	if atlassian.URL != "https://mcp.atlassian.com/v1/mcp" {
+		t.Fatalf("expected atlassian URL https://mcp.atlassian.com/v1/mcp, got %s", atlassian.URL)
+	}
+	if atlassian.OAuth == nil {
+		t.Fatal("expected atlassian OAuth config")
+	}
+	if atlassian.OAuth.AuthURL != "https://mcp.atlassian.com/v1/authorize" {
+		t.Fatalf("expected atlassian AuthURL https://mcp.atlassian.com/v1/authorize, got %s", atlassian.OAuth.AuthURL)
+	}
+	if atlassian.OAuth.TokenURL != "https://mcp.atlassian.com/v1/token" {
+		t.Fatalf("expected atlassian TokenURL https://mcp.atlassian.com/v1/token, got %s", atlassian.OAuth.TokenURL)
+	}
+	if atlassian.OAuth.ClientID == "" || atlassian.OAuth.ClientSecret == "" {
+		t.Fatal("expected atlassian ClientID and ClientSecret to be set")
+	}
+
+	slack, ok := cfg.Modules["slack"]
+	if !ok {
+		t.Fatal("expected slack module in default config")
+	}
+	if slack.OAuth == nil {
+		t.Fatal("expected slack OAuth config")
+	}
+	if slack.OAuth.AuthURL != "https://slack.com/oauth/v2/authorize" {
+		t.Fatalf("expected slack AuthURL https://slack.com/oauth/v2/authorize, got %s", slack.OAuth.AuthURL)
+	}
+	if slack.OAuth.RedirectURL != "http://localhost:9091/oauth/callback" {
+		t.Fatalf("expected slack RedirectURL http://localhost:9091/oauth/callback, got %s", slack.OAuth.RedirectURL)
+	}
+}
+
 func TestDefaultPaths(t *testing.T) {
 	t.Parallel()
 

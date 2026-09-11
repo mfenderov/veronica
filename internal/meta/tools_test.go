@@ -2,6 +2,8 @@ package meta_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/mfenderov/veronica/internal/auth"
@@ -10,7 +12,23 @@ import (
 	"github.com/mfenderov/veronica/internal/registry"
 )
 
-type mockClientFactory struct{}
+type mockClientFactory struct {
+	failClient bool
+}
+
+type mockFailingClient struct {
+	errMsg string
+}
+
+func (m *mockFailingClient) Start(ctx context.Context) error { return errors.New(m.errMsg) }
+func (m *mockFailingClient) Stop(ctx context.Context) error  { return nil }
+func (m *mockFailingClient) ListTools(ctx context.Context) ([]domain.Tool, error) {
+	return nil, errors.New(m.errMsg)
+}
+func (m *mockFailingClient) CallTool(ctx context.Context, call domain.ToolCall) (domain.ToolResult, error) {
+	return domain.ToolResult{}, errors.New(m.errMsg)
+}
+func (m *mockFailingClient) Status() domain.ModuleStatus { return domain.StatusError }
 
 type mockRunningClient struct {
 	tools []domain.Tool
@@ -29,6 +47,9 @@ func (m *mockRunningClient) CallTool(ctx context.Context, call domain.ToolCall) 
 func (m *mockRunningClient) Status() domain.ModuleStatus { return domain.StatusActive }
 
 func (f *mockClientFactory) CreateClient(ctx context.Context, cfg domain.ModuleConfig) (domain.DownstreamClient, error) {
+	if f.failClient {
+		return &mockFailingClient{errMsg: "401 invalid_token"}, nil
+	}
 	return &mockRunningClient{
 		tools: []domain.Tool{
 			{Name: cfg.Name + "_query", OriginModule: cfg.Name},
@@ -203,6 +224,20 @@ func TestMetaToolsReauth(t *testing.T) {
 	}
 	if !res.Success {
 		t.Fatal("expected success = true")
+	}
+
+	// 4. Downstream restart failure is surfaced to caller and recorded in registry
+	factory.failClient = true
+	_, err = handler.ReauthModule(ctx, "oauth-service")
+	if err == nil {
+		t.Fatal("expected error when downstream client fails to restart")
+	}
+	if !strings.Contains(err.Error(), "401 invalid_token") {
+		t.Fatalf("expected 401 invalid_token in error message, got: %v", err)
+	}
+	modAfterFail, _ := reg.GetModule("oauth-service")
+	if modAfterFail.Status != domain.StatusError {
+		t.Fatalf("expected module status error after failed restart, got: %s", modAfterFail.Status)
 	}
 }
 
