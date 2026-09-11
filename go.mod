@@ -1,6 +1,6 @@
 module github.com/mfenderov/veronica
 
-go 1.27.1
+go 1.26.1
 
 require (
 	github.com/charmbracelet/bubbles v0.21.0
