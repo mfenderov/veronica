@@ -92,12 +92,13 @@ jobs:
           BEFORE="${{ steps.before.outputs.tag }}"
           AFTER="$(git describe --tags --abbrev=0 2>/dev/null || echo '')"
           if [ -z "$AFTER" ] || [ "$AFTER" = "$BEFORE" ]; then
-            echo "No new version — nothing to release."
-          else
-            git push origin main
-            git push origin "$AFTER"
-            echo "Triggering release workflow for $AFTER..."
-            gh workflow run release.yml --ref "$AFTER"
+            echo "Auto bump did not detect feat/fix — falling back to patch bump..."
+            cog bump --patch
+            AFTER="$(git describe --tags --abbrev=0 2>/dev/null || echo '')"
           fi
+          git push origin main
+          git push origin "$AFTER"
+          echo "Triggering release workflow for $AFTER..."
+          gh workflow run release.yml --ref "$AFTER"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
