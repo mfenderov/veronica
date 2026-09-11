@@ -385,7 +385,7 @@ func populateDefaultModules(cfg *config.Config) {
 	cfg.AddModule(domain.ModuleConfig{
 		Name:      "atlassian",
 		Transport: domain.TransportHTTP,
-		URL:       "https://mcp.atlassian.com/v2/mcp",
+		URL:       "https://mcp.atlassian.com/v1/mcp",
 		OAuth: &domain.OAuthClientConfig{
 			ServerName:   "atlassian",
 			ClientID:     "REDACTED-ATLASSIAN-CLIENT-ID-V1",
@@ -437,9 +437,11 @@ func populateDefaultModules(cfg *config.Config) {
 		Transport: domain.TransportHTTP,
 		URL:       "https://mcp.slack.com/mcp",
 		OAuth: &domain.OAuthClientConfig{
-			ServerName: "slack",
-			ClientID:   "REDACTED-SLACK-CLIENT-ID",
-			TokenURL:   "https://slack.com/api/oauth.v2.user.access",
+			ServerName:  "slack",
+			ClientID:    "REDACTED-SLACK-CLIENT-ID",
+			AuthURL:     "https://slack.com/oauth/v2/authorize",
+			TokenURL:    "https://slack.com/api/oauth.v2.user.access",
+			RedirectURL: "http://localhost:9091/oauth/callback",
 		},
 	})
 }
