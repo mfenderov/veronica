@@ -106,7 +106,7 @@ func (m *OAuthManager) RefreshToken(ctx context.Context, cfg domain.OAuthClientC
 	data.Set("refresh_token", refreshToken)
 	addClientCredentials(data, cfg)
 
-	tokenResp, err := m.requestToken(ctx, cfg.TokenURL, data)
+	tokenResp, err := m.requestToken(ctx, cfg.TokenURL, data, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to refresh token for %s: %w", cfg.ServerName, err)
 	}
@@ -127,7 +127,7 @@ func (m *OAuthManager) ExchangeCode(ctx context.Context, cfg domain.OAuthClientC
 	data.Set("redirect_uri", cfg.RedirectURL)
 	addClientCredentials(data, cfg)
 
-	tokenResp, err := m.requestToken(ctx, cfg.TokenURL, data)
+	tokenResp, err := m.requestToken(ctx, cfg.TokenURL, data, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("token exchange failed for %s: %w", cfg.ServerName, err)
 	}
@@ -149,12 +149,15 @@ func addClientCredentials(data url.Values, cfg domain.OAuthClientConfig) {
 	}
 }
 
-func (m *OAuthManager) requestToken(ctx context.Context, tokenURL string, data url.Values) (*tokenResponse, error) {
+func (m *OAuthManager) requestToken(ctx context.Context, tokenURL string, data url.Values, cfg domain.OAuthClientConfig) (*tokenResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if cfg.ClientID != "" && cfg.ClientSecret != "" {
+		req.SetBasicAuth(cfg.ClientID, cfg.ClientSecret)
+	}
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {

@@ -388,10 +388,10 @@ func populateDefaultModules(cfg *config.Config) {
 		URL:       "https://mcp.atlassian.com/v2/mcp",
 		OAuth: &domain.OAuthClientConfig{
 			ServerName:   "atlassian",
-			ClientID:     "rlbBAmIrW4UsazCPsT6uXBv7XwHl5fAd",
-			ClientSecret: "ATOAeEP5xA7fyy71zsw61Lnam4a7aR3ub-qJEWkoKcNukScCFt2CQ1luL-Wyi3wkU0f3131F7CA7",
-			AuthURL:      "https://auth.atlassian.com/authorize",
-			TokenURL:     "https://auth.atlassian.com/oauth/token",
+			ClientID:     "Dx43hej60q-FX0JV",
+			ClientSecret: "XZpzdqt4o1KzoTPB_pvDCOCvoJIJHnkQ",
+			AuthURL:      "https://mcp.atlassian.com/v1/authorize",
+			TokenURL:     "https://mcp.atlassian.com/v1/token",
 			RedirectURL:  "http://localhost:9091/oauth/callback",
 			Scopes: []string{
 				"email",
