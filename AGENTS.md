@@ -10,6 +10,22 @@ You are working on **`veronica`**, an autonomous local Model Context Protocol (M
 
 ---
 
+## Core Architecture (Clean Architecture / Hexagonal)
+
+Veronica enforces a strict dependency rule verified at build-time by `tools/goarch`:
+
+- **`internal/domain`**: Pure business domain models, ports, and errors (`Module`, `Tool`, `AuthToken`, `DownstreamClient`, `AuthStore`, `TokenProvider`). **Zero external dependencies.**
+- **`internal/registry`**: Thread-safe catalog router managing active and errored modules, tool aggregation, and list-changed change notifications.
+- **`internal/auth`**: OAuth 2.0 lifecycle manager, RFC 7636 PKCE S256 code verifier/challenge generator, local callback server (`:9091/oauth/callback` or custom ports/paths), file token store (`auth.json`), and OpenCode token importer.
+- **`internal/transport`**:
+  - `DownstreamAdapter`: Connects to downstream stdio processes or remote HTTP/SSE endpoints with bearer token injection.
+  - `UpstreamServer`: Multiplexes legacy SSE (`/sse`, `/message`) and modern Streamable HTTP (`/mcp`, `/sse`) for upstream AI clients. Exposes full JSON input schemas for all tools.
+- **`internal/meta`**: Meta-tools implementation (`veronica_list_modules`, `veronica_deploy_module`, `veronica_recall_module`, `veronica_toggle_module`, `veronica_reauth_module`, `veronica_status`).
+- **`internal/tui`**: Interactive terminal dashboard powered by Bubble Tea & Lipgloss.
+- **`cmd/veronica`**: CLI entrypoint with Cobra (`serve`, `list`, `tui`, `version`).
+
+---
+
 ## Core Rules & Invariants
 
 1. **Test-Driven Development (TDD)**:
