@@ -393,84 +393,34 @@ In `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (workspace):
 
 ---
 
-## OAuth Configuration Example (`config.yaml`)
+## Zero-Boilerplate Configuration (`~/.config/veronica/config.yaml`)
 
-Veronica manages OAuth 2.0 downstream MCP servers completely declaratively via `~/.config/veronica/config.yaml`:
+Veronica manages tool definitions cleanly. You only need to define your downstream modules:
 
 ```yaml
 server:
   addr: :9090
-  oauth_callback_addr: 127.0.0.1:9091
 
 modules:
-  # Atlassian MCP v2 (Jira & Confluence Cloud)
+  # Local stdio MCP
+  mark42:
+    transport: stdio
+    command: /opt/homebrew/bin/mark42-server
+
+  # Remote MCPs
   atlassian:
-    name: atlassian
     transport: http
     url: https://mcp.atlassian.com/v2/mcp
-    oauth:
-      server_name: atlassian
-      client_id: FH0b8WMW9mXV1tQAq4z9D97LYR7yRD64
-      client_secret: ATOACZ2ZmLYoyutKWGoKp5q85sHYmBiiwIxLwstCBKuZUKH3BjufWh7wlu6RdAseMxFC229CCC8E
-      auth_url: https://auth.atlassian.com/authorize
-      token_url: https://auth.atlassian.com/oauth/token
-      redirect_url: http://localhost:9091/oauth/callback
-      auth_params:
-        audience: api.atlassian.com
-        prompt: consent
-      scopes:
-        - email
-        - offline_access
-        - read:account
-        - read:me
-        - read:jira:agent-interface
-        - write:jira:agent-interface
-        - search:jira:agent-interface
-        - read:confluence:agent-interface
-        - write:confluence:agent-interface
-        - search:confluence:agent-interface
-        - search:rovo:agent-interface
-        - search:code:agent-interface
 
-  # Slack MCP (Channels, Messages, Canvases, Search)
   slack:
-    name: slack
     transport: http
     url: https://mcp.slack.com/mcp
-    oauth:
-      server_name: slack
-      client_id: "1601185624273.8899143856786"
-      auth_url: https://slack.com/oauth/v2_user/authorize
-      token_url: https://slack.com/api/oauth.v2.user.access
-      redirect_url: http://localhost:3118/callback
-      scopes:
-        - identify
-        - channels:history
-        - channels:read
-        - channels:write
-        - chat:write
-        - groups:history
-        - groups:read
-        - groups:write
-        - im:history
-        - im:read
-        - im:write
-        - mpim:history
-        - mpim:read
-        - mpim:write
-        - users:read
-        - users:read.email
-        - emoji:read
-        - files:read
-        - canvases:read
-        - canvases:write
-        - reactions:read
-        - reactions:write
-        - search:read.public
-        - search:read.private
-        - search:read.files
-        - search:read.users
 ```
+
+### Automated OAuth & Secrets Lifecycle
+- **Automatic Defaults & Discovery**: Endpoints, Dynamic Client Registration (RFC 7591), and required scopes are discovered from downstream metadata (`/.well-known/oauth-protected-resource`) or seeded by Veronica defaults.
+- **Interactive Consent**: Triggering re-auth in the TUI (or calling `veronica_reauth_module`) automatically opens your browser for OAuth 2.0 PKCE consent and captures the callback on a local listener.
+- **Transparent Token Management**: Tokens, refresh cycles, and header injections are persisted in `~/.config/veronica/auth.json`. You never have to manually author raw credentials, scopes, or tokens.
 
 ---
 
