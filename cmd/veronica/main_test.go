@@ -217,20 +217,23 @@ func TestPopulateDefaultModules_OAuthEndpointsValid(t *testing.T) {
 	if !ok {
 		t.Fatal("expected atlassian module in default config")
 	}
-	if atlassian.URL != "https://mcp.atlassian.com/v1/mcp" {
-		t.Fatalf("expected atlassian URL https://mcp.atlassian.com/v1/mcp, got %s", atlassian.URL)
+	if atlassian.URL != "https://mcp.atlassian.com/v2/mcp" {
+		t.Fatalf("expected atlassian URL https://mcp.atlassian.com/v2/mcp, got %s", atlassian.URL)
 	}
 	if atlassian.OAuth == nil {
 		t.Fatal("expected atlassian OAuth config")
 	}
-	if atlassian.OAuth.AuthURL != "https://mcp.atlassian.com/v1/authorize" {
-		t.Fatalf("expected atlassian AuthURL https://mcp.atlassian.com/v1/authorize, got %s", atlassian.OAuth.AuthURL)
+	if atlassian.OAuth.AuthURL != "https://auth.atlassian.com/authorize" {
+		t.Fatalf("expected atlassian AuthURL https://auth.atlassian.com/authorize, got %s", atlassian.OAuth.AuthURL)
 	}
-	if atlassian.OAuth.TokenURL != "https://mcp.atlassian.com/v1/token" {
-		t.Fatalf("expected atlassian TokenURL https://mcp.atlassian.com/v1/token, got %s", atlassian.OAuth.TokenURL)
+	if atlassian.OAuth.TokenURL != "https://auth.atlassian.com/oauth/token" {
+		t.Fatalf("expected atlassian TokenURL https://auth.atlassian.com/oauth/token, got %s", atlassian.OAuth.TokenURL)
 	}
 	if atlassian.OAuth.ClientID == "" || atlassian.OAuth.ClientSecret == "" {
 		t.Fatal("expected atlassian ClientID and ClientSecret to be set")
+	}
+	if atlassian.OAuth.AuthParams == nil || atlassian.OAuth.AuthParams["audience"] != "api.atlassian.com" {
+		t.Fatalf("expected audience param api.atlassian.com, got %v", atlassian.OAuth.AuthParams)
 	}
 
 	slack, ok := cfg.Modules["slack"]
@@ -240,11 +243,11 @@ func TestPopulateDefaultModules_OAuthEndpointsValid(t *testing.T) {
 	if slack.OAuth == nil {
 		t.Fatal("expected slack OAuth config")
 	}
-	if slack.OAuth.AuthURL != "https://slack.com/oauth/v2/authorize" {
-		t.Fatalf("expected slack AuthURL https://slack.com/oauth/v2/authorize, got %s", slack.OAuth.AuthURL)
+	if slack.OAuth.AuthURL != "https://slack.com/oauth/v2_user/authorize" {
+		t.Fatalf("expected slack AuthURL https://slack.com/oauth/v2_user/authorize, got %s", slack.OAuth.AuthURL)
 	}
-	if slack.OAuth.RedirectURL != "http://localhost:9091/oauth/callback" {
-		t.Fatalf("expected slack RedirectURL http://localhost:9091/oauth/callback, got %s", slack.OAuth.RedirectURL)
+	if slack.OAuth.RedirectURL != "http://localhost:3118/callback" {
+		t.Fatalf("expected slack RedirectURL http://localhost:3118/callback, got %s", slack.OAuth.RedirectURL)
 	}
 }
 

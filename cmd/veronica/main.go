@@ -244,7 +244,20 @@ func registerRestartDaemonTool(upstream *transport.UpstreamServer, h *meta.Handl
 
 func registerReauthModuleTool(upstream *transport.UpstreamServer, h *meta.Handler) {
 	upstream.RegisterCustomTool(
-		domain.Tool{Name: "veronica_reauth_module", Description: "Re-trigger and refresh authentication for an MCP module"},
+		domain.Tool{
+			Name:        "veronica_reauth_module",
+			Description: "Re-trigger and refresh authentication for an MCP module",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Name of the module to re-authenticate (e.g. atlassian, slack)",
+					},
+				},
+				"required": []string{"name"},
+			},
+		},
 		func(ctx context.Context, args any) (domain.ToolResult, error) {
 			var p struct {
 				Name string `json:"name"`
@@ -318,7 +331,20 @@ func registerDeployModuleTool(upstream *transport.UpstreamServer, h *meta.Handle
 
 func registerRecallModuleTool(upstream *transport.UpstreamServer, h *meta.Handler, cfg *config.Config, cfgPath string) {
 	upstream.RegisterCustomTool(
-		domain.Tool{Name: "veronica_recall_module", Description: "Recall and unmount an MCP module from Veronica"},
+		domain.Tool{
+			Name:        "veronica_recall_module",
+			Description: "Recall and unmount an MCP module from Veronica",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Name of the module to recall",
+					},
+				},
+				"required": []string{"name"},
+			},
+		},
 		func(ctx context.Context, args any) (domain.ToolResult, error) {
 			var p struct {
 				Name string `json:"name"`
@@ -341,7 +367,24 @@ func registerRecallModuleTool(upstream *transport.UpstreamServer, h *meta.Handle
 
 func registerToggleModuleTool(upstream *transport.UpstreamServer, h *meta.Handler, cfg *config.Config, cfgPath string) {
 	upstream.RegisterCustomTool(
-		domain.Tool{Name: "veronica_toggle_module", Description: "Enable or disable an MCP module in Veronica"},
+		domain.Tool{
+			Name:        "veronica_toggle_module",
+			Description: "Enable or disable an MCP module in Veronica",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Name of the module to toggle",
+					},
+					"enable": map[string]any{
+						"type":        "boolean",
+						"description": "Whether to enable (true) or disable (false)",
+					},
+				},
+				"required": []string{"name", "enable"},
+			},
+		},
 		func(ctx context.Context, args any) (domain.ToolResult, error) {
 			var p struct {
 				Name   string `json:"name"`
@@ -385,31 +428,33 @@ func populateDefaultModules(cfg *config.Config) {
 	cfg.AddModule(domain.ModuleConfig{
 		Name:      "atlassian",
 		Transport: domain.TransportHTTP,
-		URL:       "https://mcp.atlassian.com/v1/mcp",
+		URL:       "https://mcp.atlassian.com/v2/mcp",
 		OAuth: &domain.OAuthClientConfig{
 			ServerName:   "atlassian",
-			ClientID:     "Dx43hej60q-FX0JV",
-			ClientSecret: "XZpzdqt4o1KzoTPB_pvDCOCvoJIJHnkQ",
-			AuthURL:      "https://mcp.atlassian.com/v1/authorize",
-			TokenURL:     "https://mcp.atlassian.com/v1/token",
+			ClientID:     "FH0b8WMW9mXV1tQAq4z9D97LYR7yRD64",
+			ClientSecret: "ATOACZ2ZmLYoyutKWGoKp5q85sHYmBiiwIxLwstCBKuZUKH3BjufWh7wlu6RdAseMxFC229CCC8E",
+			AuthURL:      "https://auth.atlassian.com/authorize",
+			TokenURL:     "https://auth.atlassian.com/oauth/token",
 			RedirectURL:  "http://localhost:9091/oauth/callback",
+			AuthParams: map[string]string{
+				"audience": "api.atlassian.com",
+				"prompt":   "consent",
+			},
 			Scopes: []string{
 				"email",
 				"offline_access",
 				"read:account",
-				"read:comment:confluence",
-				"read:confluence-user",
-				"read:hierarchical-content:confluence",
-				"read:jira-work",
 				"read:me",
-				"read:page:confluence",
-				"read:space:confluence",
-				"search:confluence",
-				"write:comment:confluence",
-				"write:jira-work",
-				"write:page:confluence",
 				"read:jira:agent-interface",
+				"write:jira:agent-interface",
 				"search:jira:agent-interface",
+				"delete:jira:agent-interface",
+				"manage:jira:agent-interface",
+				"read:confluence:agent-interface",
+				"write:confluence:agent-interface",
+				"search:confluence:agent-interface",
+				"search:rovo:agent-interface",
+				"search:code:agent-interface",
 			},
 		},
 	})
@@ -439,9 +484,37 @@ func populateDefaultModules(cfg *config.Config) {
 		OAuth: &domain.OAuthClientConfig{
 			ServerName:  "slack",
 			ClientID:    "1601185624273.8899143856786",
-			AuthURL:     "https://slack.com/oauth/v2/authorize",
+			AuthURL:     "https://slack.com/oauth/v2_user/authorize",
 			TokenURL:    "https://slack.com/api/oauth.v2.user.access",
-			RedirectURL: "http://localhost:9091/oauth/callback",
+			RedirectURL: "http://localhost:3118/callback",
+			Scopes: []string{
+				"identify",
+				"channels:history",
+				"channels:read",
+				"channels:write",
+				"chat:write",
+				"groups:history",
+				"groups:read",
+				"groups:write",
+				"im:history",
+				"im:read",
+				"im:write",
+				"mpim:history",
+				"mpim:read",
+				"mpim:write",
+				"users:read",
+				"users:read.email",
+				"emoji:read",
+				"files:read",
+				"canvases:read",
+				"canvases:write",
+				"reactions:read",
+				"reactions:write",
+				"search:read.public",
+				"search:read.private",
+				"search:read.files",
+				"search:read.users",
+			},
 		},
 	})
 }

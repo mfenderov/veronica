@@ -305,3 +305,74 @@ func TestFileAuthStoreMigrationFromOpencode(t *testing.T) {
 		t.Fatalf("failed to import opencode atlassian token: got %+v", atlassianTok)
 	}
 }
+
+func TestOAuthManager_PKCEExchange(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	store, err := auth.NewFileStore(filepath.Join(tmpDir, "auth.json"))
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	var receivedVerifier string
+	mockAuthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		receivedVerifier = r.FormValue("code_verifier")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"pkce-token","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer mockAuthServer.Close()
+
+	oauthMgr := auth.NewOAuthManager(store, http.DefaultClient)
+
+	var receivedChallenge, receivedMethod string
+	restore := auth.SetOpenBrowserFnForTesting(func(targetURL string) error {
+		u, err := url.Parse(targetURL)
+		if err != nil {
+			return err
+		}
+		receivedChallenge = u.Query().Get("code_challenge")
+		receivedMethod = u.Query().Get("code_challenge_method")
+		redirectURI := u.Query().Get("redirect_uri")
+		state := u.Query().Get("state")
+
+		callbackURL := redirectURI + "?code=pkce-auth-code&state=" + state
+		go func() {
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, callbackURL, http.NoBody)
+			if err != nil {
+				return
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+		}()
+		return nil
+	})
+	defer restore()
+
+	cfg := domain.OAuthClientConfig{
+		ServerName:  "slack",
+		ClientID:    "slack-client",
+		AuthURL:     "https://slack.com/oauth/v2_user/authorize",
+		TokenURL:    mockAuthServer.URL,
+		RedirectURL: "http://127.0.0.1:0/oauth/callback",
+	}
+
+	_, err = oauthMgr.StartInteractiveFlow(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("StartInteractiveFlow failed: %v", err)
+	}
+
+	if receivedChallenge == "" {
+		t.Fatal("expected non-empty code_challenge in auth URL")
+	}
+	if receivedMethod != "S256" {
+		t.Fatalf("expected code_challenge_method S256, got: %s", receivedMethod)
+	}
+	if receivedVerifier == "" {
+		t.Fatal("expected code_verifier in token exchange request")
+	}
+}
