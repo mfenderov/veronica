@@ -37,6 +37,9 @@ func (d *dummyAuthStore) EnsureValidToken(ctx context.Context, cfg domain.OAuthC
 func (d *dummyAuthStore) RefreshToken(ctx context.Context, cfg domain.OAuthClientConfig, refreshToken string) (*domain.AuthToken, error) {
 	return d.mockToken, nil
 }
+func (d *dummyAuthStore) StartInteractiveFlow(ctx context.Context, cfg domain.OAuthClientConfig) (*domain.AuthToken, error) {
+	return d.mockToken, nil
+}
 
 func TestDownstreamHTTPClient(t *testing.T) {
 	t.Parallel()

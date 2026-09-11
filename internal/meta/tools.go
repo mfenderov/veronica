@@ -175,7 +175,16 @@ func (h *Handler) ReauthModule(ctx context.Context, name string) (domain.ReauthR
 		return domain.ReauthResult{}, fmt.Errorf("module %s does not use OAuth", name)
 	}
 
-	tok, err := h.refreshModuleToken(ctx, *mod.Config.OAuth)
+	oauthCfg := *mod.Config.OAuth
+	var tok *domain.AuthToken
+	var err error
+
+	if oauthCfg.AuthURL != "" && h.tokenProvider != nil {
+		tok, err = h.tokenProvider.StartInteractiveFlow(ctx, oauthCfg)
+	} else {
+		tok, err = h.refreshModuleToken(ctx, oauthCfg)
+	}
+
 	if err != nil {
 		return domain.ReauthResult{}, err
 	}
@@ -186,7 +195,7 @@ func (h *Handler) ReauthModule(ctx context.Context, name string) (domain.ReauthR
 		Name:      name,
 		Success:   true,
 		ExpiresAt: tok.ExpiresAt,
-		Message:   "Auth re-triggered for " + name,
+		Message:   "Auth completed for " + name,
 	}, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,6 +18,8 @@ const (
 	modeDashboard viewMode = iota
 	modeAdd
 	modeEdit
+
+	interactiveAuthTimeout = 3 * time.Minute
 )
 
 type statusMsg struct {
@@ -148,7 +151,7 @@ func (m Model) deployModuleCmd() tea.Cmd {
 
 func (m Model) reauthModuleCmd(name string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), interactiveAuthTimeout)
 		defer cancel()
 		res, err := m.service.ReauthModule(ctx, name)
 		if err != nil {
