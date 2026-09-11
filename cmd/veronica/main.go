@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -25,6 +27,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version is the current release version of Veronica.
 var Version = "0.1.0"
 
 type downstreamFactory struct {
@@ -44,13 +47,21 @@ func main() {
 }
 
 func newRootCmd() *cobra.Command {
+	var endpoint string
+
 	rootCmd := &cobra.Command{
 		Use:   "veronica",
 		Short: "Veronica — Autonomous Local MCP Gateway & Dynamic Tool Pod",
+		Long:  "Veronica is an autonomous local MCP gateway and dynamic tool pod that unifies MCP tool administration across AI coding assistants.",
 		CompletionOptions: cobra.CompletionOptions{
 			DisableDefaultCmd: true,
 		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDefaultApp(endpoint)
+		},
 	}
+
+	rootCmd.Flags().StringVarP(&endpoint, "endpoint", "e", "http://localhost:9090/sse", "Veronica gateway SSE endpoint URL")
 
 	rootCmd.AddCommand(newServeCmd())
 	rootCmd.AddCommand(newListCmd())
@@ -118,6 +129,7 @@ func newServeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the Veronica MCP gateway server",
+		Long:  "Start the Veronica MCP gateway server in HTTP/SSE daemon mode (default) or stdio mode for direct client integration.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := setupApp(cfgPath)
 			if err != nil {
@@ -127,8 +139,8 @@ func newServeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&cfgPath, "config", "c", "", "path to config file")
-	cmd.Flags().BoolVar(&stdioMode, "stdio", false, "run as stdio MCP server directly")
+	cmd.Flags().StringVarP(&cfgPath, "config", "c", "", "path to config file (default: ~/.config/veronica/config.yaml)")
+	cmd.Flags().BoolVar(&stdioMode, "stdio", false, "run MCP gateway over stdio instead of HTTP/SSE")
 	return cmd
 }
 
@@ -211,6 +223,20 @@ func registerMetaTools(upstream *transport.UpstreamServer, h *meta.Handler, cfg 
 	registerRecallModuleTool(upstream, h, cfg, cfgPath)
 	registerToggleModuleTool(upstream, h, cfg, cfgPath)
 	registerReauthModuleTool(upstream, h)
+	registerRestartDaemonTool(upstream, h)
+}
+
+func registerRestartDaemonTool(upstream *transport.UpstreamServer, h *meta.Handler) {
+	upstream.RegisterCustomTool(
+		domain.Tool{Name: "veronica_restart_daemon", Description: "Reload all active downstream MCP modules"},
+		func(ctx context.Context, args any) (domain.ToolResult, error) {
+			res, err := h.RestartDaemon(ctx)
+			if err != nil {
+				return transport.ResultError(err), nil
+			}
+			return transport.ResultJSON(res), nil
+		},
+	)
 }
 
 func registerReauthModuleTool(upstream *transport.UpstreamServer, h *meta.Handler) {
@@ -291,7 +317,9 @@ func registerRecallModuleTool(upstream *transport.UpstreamServer, h *meta.Handle
 	upstream.RegisterCustomTool(
 		domain.Tool{Name: "veronica_recall_module", Description: "Recall and unmount an MCP module from Veronica"},
 		func(ctx context.Context, args any) (domain.ToolResult, error) {
-			var p struct{ Name string `json:"name"` }
+			var p struct {
+				Name string `json:"name"`
+			}
 			b, _ := json.Marshal(args)
 			_ = json.Unmarshal(b, &p)
 
@@ -391,12 +419,18 @@ func populateDefaultModules(cfg *config.Config) {
 }
 
 func newListCmd() *cobra.Command {
-	return &cobra.Command{
+	var cfgPath string
+
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List configured Veronica MCP modules",
+		Long:  "List all configured Veronica MCP modules, their transports, and target commands/URLs.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			defaultCfg, _ := defaultPaths()
-			cfg, err := config.Load(defaultCfg)
+			if cfgPath == "" {
+				cfgPath = defaultCfg
+			}
+			cfg, err := config.Load(cfgPath)
 			if err != nil {
 				return err
 			}
@@ -404,6 +438,9 @@ func newListCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVarP(&cfgPath, "config", "c", "", "path to config file (default: ~/.config/veronica/config.yaml)")
+	return cmd
 }
 
 func printModulesList(w io.Writer, cfg *config.Config) {
@@ -430,8 +467,9 @@ func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print Veronica version",
+		Long:  "Print the current version of the Veronica binary.",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("veronica version %s\n", Version)
+			fmt.Fprintf(cmd.OutOrStdout(), "veronica version %s\n", Version)
 		},
 	}
 }
@@ -442,12 +480,13 @@ func newTUICmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Launch the interactive Veronica TUI dashboard",
+		Long:  "Launch the interactive Veronica TUI dashboard to monitor, deploy, toggle, and manage MCP modules.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTUI(endpoint)
 		},
 	}
 
-	cmd.Flags().StringVarP(&endpoint, "endpoint", "e", "http://localhost:9090/sse", "Veronica gateway endpoint")
+	cmd.Flags().StringVarP(&endpoint, "endpoint", "e", "http://localhost:9090/sse", "Veronica gateway SSE endpoint URL")
 	return cmd
 }
 
@@ -484,4 +523,98 @@ func launchTUIProgram(remote *client.RemotePodClient) error {
 	prog := tea.NewProgram(tui.NewModel(remote), tea.WithAltScreen())
 	_, err := prog.Run()
 	return err
+}
+
+func runDefaultApp(endpoint string) error {
+	resolvedEndpoint := resolveEndpoint(endpoint)
+	if err := checkAndStartDaemon(resolvedEndpoint); err != nil {
+		return err
+	}
+	return runTUI(resolvedEndpoint)
+}
+
+func resolveEndpoint(endpoint string) string {
+	if endpoint == "" {
+		return "http://localhost:9090/sse"
+	}
+	return endpoint
+}
+
+func checkAndStartDaemon(endpoint string) error {
+	if isDaemonReachable(endpoint) {
+		return nil
+	}
+	return ensureDaemonStarted(endpoint)
+}
+
+func ensureDaemonStarted(endpoint string) error {
+	if err := startDetachedDaemon(); err != nil {
+		return fmt.Errorf("failed to auto-start Veronica daemon: %w", err)
+	}
+	return waitForDaemon(endpoint, 3*time.Second)
+}
+
+func isDaemonReachable(endpoint string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+func waitForDaemon(endpoint string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if isDaemonReachable(endpoint) {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return errors.New("timed out waiting for background daemon to become ready")
+}
+
+func startDetachedDaemon() error {
+	binPath := resolveBinaryPath()
+	cmd := buildDaemonCommand(binPath)
+	return cmd.Start()
+}
+
+func resolveBinaryPath() string {
+	binPath, err := os.Executable()
+	if err != nil {
+		return "veronica"
+	}
+	return binPath
+}
+
+func buildDaemonCommand(binPath string) *exec.Cmd {
+	cmd := exec.Command(binPath, "serve")
+	cmd.SysProcAttr = detachedProcAttr()
+	attachDaemonLogs(cmd)
+	return cmd
+}
+
+func attachDaemonLogs(cmd *exec.Cmd) {
+	home, _ := os.UserHomeDir()
+	logDir := filepath.Join(home, ".config", "veronica")
+	_ = os.MkdirAll(logDir, 0755)
+	logFile, err := os.OpenFile(filepath.Join(logDir, "daemon.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	}
+}
+
+func detachedProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{
+		Setsid: true,
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/mfenderov/veronica/internal/domain"
 )
 
+// View renders the visual TUI interface string based on current model state.
 func (m Model) View() string {
 	if m.width < 40 || m.height < 10 {
 		return "Terminal window too small for Veronica TUI"
@@ -163,10 +164,11 @@ func (m Model) renderRightPane(width, height int) string {
 
 func (m Model) renderFooter() string {
 	keys := fmt.Sprintf(
-		"%s Toggle  •  %s Edit  •  %s Re-auth  •  %s Deploy  •  %s Recall  •  %s Refresh  •  %s Quit",
+		"%s Toggle  •  %s Edit  •  %s Re-auth  •  %s Reload  •  %s Deploy  •  %s Recall  •  %s Refresh  •  %s Quit",
 		footerKey.Render("[Space]"),
 		footerKey.Render("[e]"),
 		footerKey.Render("[A]"),
+		footerKey.Render("[R]"),
 		footerKey.Render("[a]"),
 		footerKey.Render("[d]"),
 		footerKey.Render("[r]"),
@@ -200,7 +202,11 @@ func (m Model) renderFormModal() string {
 	}
 	fmt.Fprintf(&b, "Transport: %s  %s\n\n", transportBadge, textSubtle.Render("(Press [Ctrl+T] to toggle)"))
 
-	b.WriteString("Command or URL:\n")
+	targetLabel := "Command:"
+	if m.transportType == domain.TransportHTTP {
+		targetLabel = "Endpoint URL:"
+	}
+	b.WriteString(targetLabel + "\n")
 	b.WriteString(m.cmdInput.View() + "\n\n")
 
 	actionLabel := "[Enter] Deploy"

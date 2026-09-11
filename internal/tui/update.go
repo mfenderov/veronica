@@ -11,6 +11,7 @@ import (
 
 const defaultTimeout = 5 * time.Second
 
+// Update processes incoming Bubble Tea messages and returns updated models and commands.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -134,11 +135,15 @@ func (m Model) handleActionKey(key string) (tea.Model, tea.Cmd) {
 		return m.enterEditMode(), nil
 	case "A", "ctrl+a":
 		return m.handleReauthKey()
+	case "R", "ctrl+r":
+		return m, m.restartDaemonCmd()
 	case "d":
 		return m.handleRecallKey()
 	case "a":
 		return m.enterAddMode(), nil
 	case "r":
+		m.statusMsg = "Catalog refreshed"
+		m.statusIsError = false
 		return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd())
 	default:
 		return m, nil
@@ -182,6 +187,7 @@ func (m Model) enterAddMode() Model {
 	m.nameInput.SetValue("")
 	m.cmdInput.SetValue("")
 	m.transportType = domain.TransportStdio
+	m.cmdInput.Placeholder = "command (e.g. /bin/pg-mcp)"
 	m.activeInputIdx = 0
 	m.nameInput.Focus()
 	m.cmdInput.Blur()
@@ -197,6 +203,11 @@ func (m Model) enterEditMode() Model {
 	m.nameInput.SetValue(mod.Name)
 	m.cmdInput.SetValue(mod.Target)
 	m.transportType = mod.Transport
+	if m.transportType == domain.TransportHTTP {
+		m.cmdInput.Placeholder = "https://mcp.example.com/sse"
+	} else {
+		m.cmdInput.Placeholder = "command (e.g. /bin/pg-mcp)"
+	}
 	m.activeInputIdx = 1
 	m.nameInput.Blur()
 	m.cmdInput.Focus()
@@ -235,8 +246,10 @@ func (m Model) switchActiveInput() Model {
 func (m Model) toggleFormTransport() Model {
 	if m.transportType == domain.TransportStdio {
 		m.transportType = domain.TransportHTTP
+		m.cmdInput.Placeholder = "https://mcp.example.com/sse"
 	} else {
 		m.transportType = domain.TransportStdio
+		m.cmdInput.Placeholder = "command (e.g. /bin/pg-mcp)"
 	}
 	return m
 }

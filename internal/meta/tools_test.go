@@ -205,3 +205,28 @@ func TestMetaToolsReauth(t *testing.T) {
 		t.Fatal("expected success = true")
 	}
 }
+
+func TestMetaToolsRestartDaemon(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	store, _ := auth.NewFileStore(t.TempDir() + "/auth.json")
+	factory := &mockClientFactory{}
+	handler := meta.NewHandler(reg, store, factory)
+
+	ctx := context.Background()
+
+	_, _ = handler.DeployModule(ctx, meta.DeployParams{
+		Name:      "test-mod",
+		Transport: "stdio",
+		Command:   "/bin/echo",
+	})
+
+	res, err := handler.RestartDaemon(ctx)
+	if err != nil {
+		t.Fatalf("RestartDaemon failed: %v", err)
+	}
+	if !res.Success {
+		t.Fatal("expected restart success = true")
+	}
+}

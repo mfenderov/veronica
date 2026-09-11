@@ -13,11 +13,13 @@ import (
 	"github.com/mfenderov/veronica/internal/domain"
 )
 
+// OAuthManager implements domain.TokenProvider to manage token storage, renewal, and exchange.
 type OAuthManager struct {
 	store      domain.AuthStore
 	httpClient *http.Client
 }
 
+// NewOAuthManager constructs an OAuthManager using the specified store and HTTP client.
 func NewOAuthManager(store domain.AuthStore, client *http.Client) *OAuthManager {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
@@ -28,6 +30,7 @@ func NewOAuthManager(store domain.AuthStore, client *http.Client) *OAuthManager 
 	}
 }
 
+// GetToken retrieves an authentication token for the given server name from the store.
 func (m *OAuthManager) GetToken(ctx context.Context, serverName string) (*domain.AuthToken, error) {
 	return m.store.GetToken(ctx, serverName)
 }
@@ -39,6 +42,7 @@ type tokenResponse struct {
 	TokenType    string `json:"token_type"`
 }
 
+// EnsureValidToken returns a valid authentication token, refreshing it automatically if close to expiry.
 func (m *OAuthManager) EnsureValidToken(ctx context.Context, cfg domain.OAuthClientConfig) (*domain.AuthToken, error) {
 	tok, err := m.store.GetToken(ctx, cfg.ServerName)
 	if err != nil {
@@ -64,6 +68,7 @@ func (m *OAuthManager) EnsureValidToken(ctx context.Context, cfg domain.OAuthCli
 	return refreshed, nil
 }
 
+// RefreshToken requests a new access token from the token endpoint using a refresh token.
 func (m *OAuthManager) RefreshToken(ctx context.Context, cfg domain.OAuthClientConfig, refreshToken string) (*domain.AuthToken, error) {
 	data := url.Values{}
 	data.Set("grant_type", "refresh_token")
@@ -83,6 +88,7 @@ func (m *OAuthManager) RefreshToken(ctx context.Context, cfg domain.OAuthClientC
 	return &newToken, nil
 }
 
+// ExchangeCode exchanges an OAuth authorization code for access and refresh tokens.
 func (m *OAuthManager) ExchangeCode(ctx context.Context, cfg domain.OAuthClientConfig, code string) (*domain.AuthToken, error) {
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")

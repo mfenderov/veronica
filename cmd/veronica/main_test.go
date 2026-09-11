@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mfenderov/veronica/internal/config"
 	"github.com/mfenderov/veronica/internal/domain"
@@ -46,6 +49,9 @@ func TestNewTUICmd_Config(t *testing.T) {
 	if endpointFlag.DefValue != "http://localhost:9090/sse" {
 		t.Fatalf("unexpected default endpoint: %s", endpointFlag.DefValue)
 	}
+	if !strings.Contains(endpointFlag.Usage, "SSE") {
+		t.Fatalf("expected endpoint flag usage to mention SSE, got: %s", endpointFlag.Usage)
+	}
 }
 
 func TestConnectRemotePod_Error(t *testing.T) {
@@ -76,6 +82,9 @@ func TestVersionCmd_Output(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version command failed: %v", err)
 	}
+	if !strings.Contains(buf.String(), "veronica version "+Version) {
+		t.Fatalf("expected version output to contain version string, got: %s", buf.String())
+	}
 }
 
 func TestListCmd_Execution(t *testing.T) {
@@ -96,6 +105,44 @@ func TestListCmd_Execution(t *testing.T) {
 	}
 }
 
+func TestListCmd_Flags(t *testing.T) {
+	t.Parallel()
+
+	cmd := newListCmd()
+	cfgFlag := cmd.Flag("config")
+	if cfgFlag == nil {
+		t.Fatal("expected config flag on list command")
+	}
+	if !strings.Contains(cfgFlag.Usage, "config.yaml") {
+		t.Fatalf("expected config flag usage to mention default, got: %s", cfgFlag.Usage)
+	}
+
+	// Test list with a custom config file
+	tmpDir := t.TempDir()
+	customPath := filepath.Join(tmpDir, "custom.yaml")
+	customCfg := config.DefaultConfig()
+	customCfg.AddModule(domain.ModuleConfig{
+		Name:      "custom-mod",
+		Transport: domain.TransportStdio,
+		Command:   "/bin/echo",
+	})
+	if err := customCfg.Save(customPath); err != nil {
+		t.Fatalf("failed to save custom config: %v", err)
+	}
+
+	rootCmd := newRootCmd()
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetArgs([]string{"list", "-c", customPath})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("list -c failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "custom-mod") {
+		t.Fatalf("expected custom-mod in list output, got: %s", buf.String())
+	}
+}
+
 func TestServeCmd_Flags(t *testing.T) {
 	t.Parallel()
 
@@ -103,11 +150,19 @@ func TestServeCmd_Flags(t *testing.T) {
 	if cmd.Use != "serve" {
 		t.Fatalf("expected serve command use, got %s", cmd.Use)
 	}
-	if cmd.Flag("config") == nil {
+	cfgFlag := cmd.Flag("config")
+	if cfgFlag == nil {
 		t.Fatal("expected config flag on serve command")
 	}
-	if cmd.Flag("stdio") == nil {
+	if !strings.Contains(cfgFlag.Usage, "config.yaml") {
+		t.Fatalf("expected config flag usage to mention default, got: %s", cfgFlag.Usage)
+	}
+	stdioFlag := cmd.Flag("stdio")
+	if stdioFlag == nil {
 		t.Fatal("expected stdio flag on serve command")
+	}
+	if !strings.Contains(stdioFlag.Usage, "stdio") {
+		t.Fatalf("expected stdio flag usage to mention stdio, got: %s", stdioFlag.Usage)
 	}
 }
 
@@ -240,4 +295,98 @@ func TestLogModuleWarn(t *testing.T) {
 	// Should not panic with quiet=true or quiet=false
 	logModuleWarn(true, os.ErrNotExist)
 	logModuleWarn(false, os.ErrNotExist)
+}
+
+func TestIsDaemonReachable(t *testing.T) {
+	t.Parallel()
+
+	// Unreachable endpoint
+	if isDaemonReachable("http://127.0.0.1:59999/sse") {
+		t.Fatal("expected unreachable for nonexistent server")
+	}
+
+	// Reachable endpoint
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if !isDaemonReachable(srv.URL) {
+		t.Fatal("expected reachable for active mock server")
+	}
+}
+
+func TestWaitForDaemon(t *testing.T) {
+	t.Parallel()
+
+	// Unreachable should timeout
+	err := waitForDaemon("http://127.0.0.1:59999/sse", 100*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected timeout waiting for nonexistent daemon")
+	}
+
+	// Active server should resolve immediately
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := waitForDaemon(srv.URL, 500*time.Millisecond); err != nil {
+		t.Fatalf("expected active server to be detected: %v", err)
+	}
+}
+
+func TestDetachedProcAttr(t *testing.T) {
+	t.Parallel()
+
+	attr := detachedProcAttr()
+	if attr == nil || !attr.Setsid {
+		t.Fatal("expected non-nil SysProcAttr with Setsid=true")
+	}
+}
+
+func TestResolveEndpoint(t *testing.T) {
+	t.Parallel()
+
+	if resolveEndpoint("") != "http://localhost:9090/sse" {
+		t.Fatalf("expected default endpoint, got: %s", resolveEndpoint(""))
+	}
+	custom := "http://127.0.0.1:8080/sse"
+	if resolveEndpoint(custom) != custom {
+		t.Fatalf("expected custom endpoint, got: %s", resolveEndpoint(custom))
+	}
+}
+
+func TestResolveBinaryPath(t *testing.T) {
+	t.Parallel()
+
+	path := resolveBinaryPath()
+	if path == "" {
+		t.Fatal("expected non-empty binary path")
+	}
+}
+
+func TestBuildDaemonCommand(t *testing.T) {
+	t.Parallel()
+
+	cmd := buildDaemonCommand("veronica")
+	if cmd == nil || len(cmd.Args) != 2 || cmd.Args[1] != "serve" {
+		t.Fatalf("unexpected daemon command args: %+v", cmd)
+	}
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
+		t.Fatal("expected Setsid=true in daemon command")
+	}
+}
+
+func TestCheckAndStartDaemon_Reachable(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := checkAndStartDaemon(srv.URL); err != nil {
+		t.Fatalf("expected no error when daemon is already reachable: %v", err)
+	}
 }

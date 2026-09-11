@@ -1,3 +1,4 @@
+// Package auth provides authentication token persistence, OAuth 2.0 flows, and callback handling.
 package auth
 
 import (
@@ -13,14 +14,17 @@ import (
 	"github.com/mfenderov/veronica/internal/domain"
 )
 
+// FileAuthStore implements domain.AuthStore by persisting tokens in a local JSON file.
 type FileAuthStore struct {
 	mu       sync.RWMutex
 	filePath string
 	tokens   map[string]domain.AuthToken
 }
 
+// ErrTokenNotFound is returned when no token is found for the requested server name.
 var ErrTokenNotFound = errors.New("token not found")
 
+// NewFileStore creates and initializes a FileAuthStore from the specified file path.
 func NewFileStore(filePath string) (*FileAuthStore, error) {
 	store := &FileAuthStore{
 		filePath: filePath,
@@ -82,6 +86,7 @@ func (s *FileAuthStore) saveLocked() error {
 	return nil
 }
 
+// GetToken retrieves the stored authentication token for the given server name.
 func (s *FileAuthStore) GetToken(ctx context.Context, serverName string) (*domain.AuthToken, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -93,6 +98,7 @@ func (s *FileAuthStore) GetToken(ctx context.Context, serverName string) (*domai
 	return &tok, nil
 }
 
+// SaveToken persists an authentication token in memory and flushes it to disk.
 func (s *FileAuthStore) SaveToken(ctx context.Context, token domain.AuthToken) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -101,6 +107,7 @@ func (s *FileAuthStore) SaveToken(ctx context.Context, token domain.AuthToken) e
 	return s.saveLocked()
 }
 
+// DeleteToken removes the token for the given server name and updates the disk file.
 func (s *FileAuthStore) DeleteToken(ctx context.Context, serverName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -109,6 +116,7 @@ func (s *FileAuthStore) DeleteToken(ctx context.Context, serverName string) erro
 	return s.saveLocked()
 }
 
+// ListTokens returns a slice of all stored authentication tokens.
 func (s *FileAuthStore) ListTokens(ctx context.Context) ([]domain.AuthToken, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -128,6 +136,7 @@ type openCodeServerEntry struct {
 	} `json:"tokens"`
 }
 
+// ImportFromOpenCode imports tokens from an OpenCode auth JSON file into the store.
 func (s *FileAuthStore) ImportFromOpenCode(openCodePath string) error {
 	data, err := os.ReadFile(openCodePath)
 	if errors.Is(err, os.ErrNotExist) {

@@ -1,3 +1,4 @@
+// Package client provides an MCP client adapter for communicating with a remote Veronica gateway pod.
 package client
 
 import (
@@ -10,6 +11,7 @@ import (
 	"github.com/mfenderov/veronica/internal/domain"
 )
 
+// RemotePodClient implements domain.PodService over an MCP transport connecting to a remote Veronica gateway.
 type RemotePodClient struct {
 	endpoint  string
 	mcpClient *client.Client
@@ -18,6 +20,7 @@ type RemotePodClient struct {
 
 var _ domain.PodService = (*RemotePodClient)(nil)
 
+// NewRemotePodClient creates a RemotePodClient configured to connect to the given endpoint.
 func NewRemotePodClient(endpoint string) (*RemotePodClient, error) {
 	if endpoint == "" {
 		endpoint = "http://localhost:9090/sse"
@@ -34,6 +37,7 @@ func NewRemotePodClient(endpoint string) (*RemotePodClient, error) {
 	}, nil
 }
 
+// Connect establishes an MCP session with the remote Veronica gateway.
 func (c *RemotePodClient) Connect(ctx context.Context) error {
 	connCtx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
@@ -59,6 +63,7 @@ func (c *RemotePodClient) Connect(ctx context.Context) error {
 	return nil
 }
 
+// Close cancels the connection context and closes the underlying MCP client.
 func (c *RemotePodClient) Close() {
 	if c.cancel != nil {
 		c.cancel()
@@ -68,6 +73,7 @@ func (c *RemotePodClient) Close() {
 	}
 }
 
+// Status retrieves runtime status metrics from the remote Veronica gateway.
 func (c *RemotePodClient) Status(ctx context.Context) (domain.GatewayStatus, error) {
 	res, err := c.callTool(ctx, "veronica_status", nil)
 	if err != nil {
@@ -81,6 +87,7 @@ func (c *RemotePodClient) Status(ctx context.Context) (domain.GatewayStatus, err
 	return status, nil
 }
 
+// ListModules retrieves the list of modules registered in the remote Veronica gateway.
 func (c *RemotePodClient) ListModules(ctx context.Context) ([]domain.ModuleSummary, error) {
 	res, err := c.callTool(ctx, "veronica_list_modules", nil)
 	if err != nil {
@@ -94,6 +101,7 @@ func (c *RemotePodClient) ListModules(ctx context.Context) ([]domain.ModuleSumma
 	return list, nil
 }
 
+// DeployModule requests the remote Veronica gateway to deploy and mount a new module.
 func (c *RemotePodClient) DeployModule(ctx context.Context, p domain.DeployParams) (domain.DeployResult, error) {
 	res, err := c.callTool(ctx, "veronica_deploy_module", p)
 	if err != nil {
@@ -107,6 +115,7 @@ func (c *RemotePodClient) DeployModule(ctx context.Context, p domain.DeployParam
 	return result, nil
 }
 
+// RecallModule requests the remote Veronica gateway to recall and stop a module.
 func (c *RemotePodClient) RecallModule(ctx context.Context, name string) (domain.RecallResult, error) {
 	res, err := c.callTool(ctx, "veronica_recall_module", map[string]string{"name": name})
 	if err != nil {
@@ -120,6 +129,7 @@ func (c *RemotePodClient) RecallModule(ctx context.Context, name string) (domain
 	return result, nil
 }
 
+// ToggleModule requests the remote Veronica gateway to enable or disable a module.
 func (c *RemotePodClient) ToggleModule(ctx context.Context, name string, enable bool) (domain.ToggleResult, error) {
 	args := map[string]any{"name": name, "enable": enable}
 	res, err := c.callTool(ctx, "veronica_toggle_module", args)
@@ -134,6 +144,7 @@ func (c *RemotePodClient) ToggleModule(ctx context.Context, name string, enable 
 	return result, nil
 }
 
+// ReauthModule requests the remote Veronica gateway to re-authenticate an OAuth module.
 func (c *RemotePodClient) ReauthModule(ctx context.Context, name string) (domain.ReauthResult, error) {
 	args := map[string]any{"name": name}
 	res, err := c.callTool(ctx, "veronica_reauth_module", args)
@@ -144,6 +155,20 @@ func (c *RemotePodClient) ReauthModule(ctx context.Context, name string) (domain
 	var result domain.ReauthResult
 	if err := json.Unmarshal([]byte(res), &result); err != nil {
 		return domain.ReauthResult{}, fmt.Errorf("decode reauth result failed: %w", err)
+	}
+	return result, nil
+}
+
+// RestartDaemon calls the veronica_restart_daemon tool to reload daemon modules.
+func (c *RemotePodClient) RestartDaemon(ctx context.Context) (domain.RestartResult, error) {
+	res, err := c.callTool(ctx, "veronica_restart_daemon", nil)
+	if err != nil {
+		return domain.RestartResult{}, err
+	}
+
+	var result domain.RestartResult
+	if err := json.Unmarshal([]byte(res), &result); err != nil {
+		return domain.RestartResult{}, fmt.Errorf("decode restart result failed: %w", err)
 	}
 	return result, nil
 }

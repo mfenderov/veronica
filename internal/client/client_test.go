@@ -118,6 +118,16 @@ func TestRemotePodClient(t *testing.T) {
 			return transport.ResultJSON(res), nil
 		},
 	)
+	upstream.RegisterCustomTool(
+		domain.Tool{Name: "veronica_restart_daemon"},
+		func(ctx context.Context, args any) (domain.ToolResult, error) {
+			res, err := metaHandler.RestartDaemon(ctx)
+			if err != nil {
+				return transport.ResultError(err), nil
+			}
+			return transport.ResultJSON(res), nil
+		},
+	)
 
 	httpSrv := httptest.NewServer(upstream.Handler())
 	defer httpSrv.Close()
@@ -205,6 +215,15 @@ func TestRemotePodClient(t *testing.T) {
 	_, err = remote.ReauthModule(ctx, "oauth-mod")
 	if err == nil {
 		t.Fatal("expected error reauthing module without oauth config")
+	}
+
+	// 11. Test RestartDaemon
+	restartRes, err := remote.RestartDaemon(ctx)
+	if err != nil {
+		t.Fatalf("RestartDaemon failed: %v", err)
+	}
+	if !restartRes.Success {
+		t.Fatal("expected restart success = true")
 	}
 }
 

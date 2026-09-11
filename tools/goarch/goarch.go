@@ -1,3 +1,4 @@
+// Package goarch provides architectural boundary and import rule validation for Go packages.
 package goarch
 
 import (
@@ -10,6 +11,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// LayerRule defines architectural import constraints for a specific package layer.
 type LayerRule struct {
 	name          string
 	pkg           string
@@ -17,15 +19,18 @@ type LayerRule struct {
 	mayOnlyImport []string
 }
 
+// Layer creates a new LayerRule with the given descriptive name and package path.
 func Layer(name, pkg string) *LayerRule {
 	return &LayerRule{name: name, pkg: pkg}
 }
 
+// MustNotImport adds forbidden package dependencies to the layer rule.
 func (r *LayerRule) MustNotImport(pkgs ...string) *LayerRule {
 	r.mustNotImport = append(r.mustNotImport, pkgs...)
 	return r
 }
 
+// MayOnlyImport configures an allowlist of permitted internal package dependencies for the layer.
 func (r *LayerRule) MayOnlyImport(pkgs ...string) *LayerRule {
 	if r.mayOnlyImport == nil {
 		r.mayOnlyImport = []string{}
@@ -39,6 +44,7 @@ type errorReporter interface {
 	Errorf(format string, args ...any)
 }
 
+// Check validates that the current module conforms to all specified architectural layer rules.
 func Check(t testing.TB, rules ...*LayerRule) {
 	t.Helper()
 

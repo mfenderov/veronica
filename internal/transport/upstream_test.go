@@ -105,7 +105,7 @@ func TestUpstreamServerStreamablePost(t *testing.T) {
 
 	// Simulate VS Code sending POST to /sse (or /mcp)
 	initPayload := []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"vscode","version":"1.0"},"capabilities":{}}}`)
-	
+
 	for _, endpoint := range []string{"/sse", "/mcp"} {
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, httpSrv.URL+endpoint, bytes.NewReader(initPayload))
 		if err != nil {

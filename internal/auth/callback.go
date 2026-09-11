@@ -9,11 +9,13 @@ import (
 	"sync"
 )
 
+// CallbackResult holds the authorization code and state parameter from an OAuth redirect callback.
 type CallbackResult struct {
 	Code  string
 	State string
 }
 
+// CallbackServer runs an HTTP server on a local port to capture OAuth redirect callbacks.
 type CallbackServer struct {
 	bindAddr string
 	listener net.Listener
@@ -22,6 +24,7 @@ type CallbackServer struct {
 	mu       sync.Mutex
 }
 
+// NewCallbackServer creates a new CallbackServer bound to the given address.
 func NewCallbackServer(bindAddr string) *CallbackServer {
 	if bindAddr == "" {
 		bindAddr = "127.0.0.1:9091"
@@ -32,6 +35,7 @@ func NewCallbackServer(bindAddr string) *CallbackServer {
 	}
 }
 
+// Start begins listening and serving OAuth redirect callback requests asynchronously.
 func (s *CallbackServer) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -53,6 +57,7 @@ func (s *CallbackServer) Start() error {
 	return nil
 }
 
+// Addr returns the network address the callback server is currently listening on.
 func (s *CallbackServer) Addr() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -62,6 +67,7 @@ func (s *CallbackServer) Addr() string {
 	return s.listener.Addr().String()
 }
 
+// Stop gracefully stops the callback server.
 func (s *CallbackServer) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -71,6 +77,7 @@ func (s *CallbackServer) Stop(ctx context.Context) error {
 	return nil
 }
 
+// WaitForCode blocks until an authorization code is received or the context is done.
 func (s *CallbackServer) WaitForCode(ctx context.Context) (CallbackResult, error) {
 	select {
 	case res := <-s.codeChan:
@@ -106,4 +113,5 @@ func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 </html>`))
 }
 
+// ErrCallbackTimeout indicates that the deadline was exceeded while waiting for an authorization callback.
 var ErrCallbackTimeout = errors.New("timed out waiting for authorization callback")
