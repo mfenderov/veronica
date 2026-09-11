@@ -20,8 +20,8 @@
    Copilot, VS Code, OpenCode, Pi, Claude Code, and Cursor connect to a single SSE/Streamable HTTP endpoint (`http://localhost:9090/sse`). Any tool mounted in Veronica is immediately available across all harnesses.
 3. **No Docker Desktop**:
    Zero container overhead. Spawns local CLI MCP processes natively and proxies remote HTTP/SSE servers with sub-millisecond dispatch and ~2MB RAM footprint.
-4. **Centralized OAuth & Secrets**:
-   Includes a local OAuth callback listener (`:9091/oauth/callback`) and an automated token refresh worker, absorbing ad-hoc shell and Node bridge scripts.
+4. **Centralized OAuth, PKCE & Secrets**:
+   Includes an automated local OAuth callback listener (`:9091/oauth/callback` or custom callback ports such as `:3118/callback`), native RFC 7636 PKCE S256 support, RFC 7591 Dynamic Client Registration (DCR), and automatic token import from OpenCode (`~/.local/share/opencode/mcp-auth.json`). Absorbs ad-hoc shell and Node bridge scripts into a single Go binary.
 5. **Interactive Charm TUI**:
    Full terminal dashboard (`veronica tui`) powered by Bubble Tea & Lipgloss with instant module toggling, in-place editing, and 1-key force re-authentication.
 6. **Merciless Simplification & Quality**:
@@ -393,18 +393,109 @@ In `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (workspace):
 
 ---
 
+## OAuth Configuration Example (`config.yaml`)
+
+Veronica manages OAuth 2.0 downstream MCP servers completely declaratively via `~/.config/veronica/config.yaml`:
+
+```yaml
+server:
+  addr: :9090
+  oauth_callback_addr: 127.0.0.1:9091
+
+modules:
+  # Atlassian MCP v2 (Jira & Confluence Cloud)
+  atlassian:
+    name: atlassian
+    transport: http
+    url: https://mcp.atlassian.com/v2/mcp
+    oauth:
+      server_name: atlassian
+      client_id: FH0b8WMW9mXV1tQAq4z9D97LYR7yRD64
+      client_secret: ATOACZ2ZmLYoyutKWGoKp5q85sHYmBiiwIxLwstCBKuZUKH3BjufWh7wlu6RdAseMxFC229CCC8E
+      auth_url: https://auth.atlassian.com/authorize
+      token_url: https://auth.atlassian.com/oauth/token
+      redirect_url: http://localhost:9091/oauth/callback
+      auth_params:
+        audience: api.atlassian.com
+        prompt: consent
+      scopes:
+        - email
+        - offline_access
+        - read:account
+        - read:me
+        - read:jira:agent-interface
+        - write:jira:agent-interface
+        - search:jira:agent-interface
+        - read:confluence:agent-interface
+        - write:confluence:agent-interface
+        - search:confluence:agent-interface
+        - search:rovo:agent-interface
+        - search:code:agent-interface
+
+  # Slack MCP (Channels, Messages, Canvases, Search)
+  slack:
+    name: slack
+    transport: http
+    url: https://mcp.slack.com/mcp
+    oauth:
+      server_name: slack
+      client_id: "1601185624273.8899143856786"
+      auth_url: https://slack.com/oauth/v2_user/authorize
+      token_url: https://slack.com/api/oauth.v2.user.access
+      redirect_url: http://localhost:3118/callback
+      scopes:
+        - identify
+        - channels:history
+        - channels:read
+        - channels:write
+        - chat:write
+        - groups:history
+        - groups:read
+        - groups:write
+        - im:history
+        - im:read
+        - im:write
+        - mpim:history
+        - mpim:read
+        - mpim:write
+        - users:read
+        - users:read.email
+        - emoji:read
+        - files:read
+        - canvases:read
+        - canvases:write
+        - reactions:read
+        - reactions:write
+        - search:read.public
+        - search:read.private
+        - search:read.files
+        - search:read.users
+```
+
+---
+
 ## Quality & Testing Gates
 
 ```bash
-# Run tests with race detector
+# Run unit and integration tests with race detector and test shuffle
 make test
 
-# Run strict CRAP score quality gate (max 10)
+# Run full end-to-end integration test suite
+make test-e2e
+
+# Run strict CRAP score quality gate (max 10 across all functions)
 make crap
 
-# Run linter
+# Run golangci-lint
 make lint
 
-# Compile and install to ~/bin
+# Run code formatters and modern Go fixers
+make fmt
+make fix
+
+# Verify module dependencies
+make tidy
+
+# Compile binary and install to ~/bin/veronica
 make install
 ```
