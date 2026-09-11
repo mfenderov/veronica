@@ -1,0 +1,260 @@
+package tui
+
+import (
+	"fmt"
+	"sort"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mfenderov/veronica/internal/domain"
+)
+
+const defaultTimeout = 5 * time.Second
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		return m.handleWindowSize(msg)
+	case statusMsg:
+		return m.handleStatusMsg(msg)
+	case modulesMsg:
+		return m.handleModulesMsg(msg)
+	case actionResultMsg:
+		return m.handleActionResult(msg)
+	case tea.KeyMsg:
+		return m.handleKeyMsg(msg)
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	m.width = msg.Width
+	m.height = msg.Height
+	return m, nil
+}
+
+func (m Model) handleStatusMsg(msg statusMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMsg = fmt.Sprintf("Status error: %v", msg.err)
+		m.statusIsError = true
+		return m, nil
+	}
+	m.status = msg.status
+	return m, nil
+}
+
+func (m Model) handleModulesMsg(msg modulesMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMsg = fmt.Sprintf("Modules error: %v", msg.err)
+		m.statusIsError = true
+		return m, nil
+	}
+
+	selectedName := m.currentSelectedName()
+	m.modules = sortModules(msg.modules)
+	m.cursor = m.findCursorForName(selectedName)
+	return m, nil
+}
+
+func (m Model) currentSelectedName() string {
+	if len(m.modules) > 0 && m.cursor < len(m.modules) {
+		return m.modules[m.cursor].Name
+	}
+	return ""
+}
+
+func sortModules(mods []domain.ModuleSummary) []domain.ModuleSummary {
+	sorted := make([]domain.ModuleSummary, len(mods))
+	copy(sorted, mods)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Name < sorted[j].Name
+	})
+	return sorted
+}
+
+func (m Model) findCursorForName(name string) int {
+	if name != "" {
+		for i, mod := range m.modules {
+			if mod.Name == name {
+				return i
+			}
+		}
+	}
+	if m.cursor >= len(m.modules) && len(m.modules) > 0 {
+		return len(m.modules) - 1
+	}
+	return m.cursor
+}
+
+func (m Model) handleActionResult(msg actionResultMsg) (tea.Model, tea.Cmd) {
+	m.statusMsg = msg.message
+	m.statusIsError = msg.isError
+	return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd())
+}
+
+func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyCtrlC {
+		return m, tea.Quit
+	}
+
+	if m.mode == modeAdd || m.mode == modeEdit {
+		return m.handleFormKey(msg)
+	}
+
+	return m.handleDashboardKey(msg)
+}
+
+func (m Model) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if m.isNavKey(key) {
+		return m.handleNavKey(key), nil
+	}
+	return m.handleActionKey(key)
+}
+
+func (m Model) isNavKey(key string) bool {
+	return key == "up" || key == "k" || key == "down" || key == "j"
+}
+
+func (m Model) handleNavKey(key string) Model {
+	if key == "up" || key == "k" {
+		return m.moveCursor(-1)
+	}
+	return m.moveCursor(1)
+}
+
+func (m Model) handleActionKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "q":
+		return m, tea.Quit
+	case " ":
+		return m.handleToggleKey()
+	case "e":
+		return m.enterEditMode(), nil
+	case "A", "ctrl+a":
+		return m.handleReauthKey()
+	case "d":
+		return m.handleRecallKey()
+	case "a":
+		return m.enterAddMode(), nil
+	case "r":
+		return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd())
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) moveCursor(delta int) Model {
+	newIdx := m.cursor + delta
+	if newIdx >= 0 && newIdx < len(m.modules) {
+		m.cursor = newIdx
+	}
+	return m
+}
+
+func (m Model) handleToggleKey() (tea.Model, tea.Cmd) {
+	if len(m.modules) == 0 || m.cursor >= len(m.modules) {
+		return m, nil
+	}
+	mod := m.modules[m.cursor]
+	return m, m.toggleModuleCmd(mod.Name, mod.Status)
+}
+
+func (m Model) handleRecallKey() (tea.Model, tea.Cmd) {
+	if len(m.modules) == 0 || m.cursor >= len(m.modules) {
+		return m, nil
+	}
+	mod := m.modules[m.cursor]
+	return m, m.recallModuleCmd(mod.Name)
+}
+
+func (m Model) handleReauthKey() (tea.Model, tea.Cmd) {
+	if len(m.modules) == 0 || m.cursor >= len(m.modules) {
+		return m, nil
+	}
+	mod := m.modules[m.cursor]
+	return m, m.reauthModuleCmd(mod.Name)
+}
+
+func (m Model) enterAddMode() Model {
+	m.mode = modeAdd
+	m.nameInput.SetValue("")
+	m.cmdInput.SetValue("")
+	m.transportType = domain.TransportStdio
+	m.activeInputIdx = 0
+	m.nameInput.Focus()
+	m.cmdInput.Blur()
+	return m
+}
+
+func (m Model) enterEditMode() Model {
+	if len(m.modules) == 0 || m.cursor >= len(m.modules) {
+		return m
+	}
+	mod := m.modules[m.cursor]
+	m.mode = modeEdit
+	m.nameInput.SetValue(mod.Name)
+	m.cmdInput.SetValue(mod.Target)
+	m.transportType = mod.Transport
+	m.activeInputIdx = 1
+	m.nameInput.Blur()
+	m.cmdInput.Focus()
+	return m
+}
+
+func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeDashboard
+		return m, nil
+	case "tab":
+		return m.switchActiveInput(), nil
+	case "ctrl+t":
+		return m.toggleFormTransport(), nil
+	case "enter":
+		return m.submitForm()
+	default:
+		return m.updateFormInputs(msg)
+	}
+}
+
+func (m Model) switchActiveInput() Model {
+	if m.activeInputIdx == 0 {
+		m.activeInputIdx = 1
+		m.nameInput.Blur()
+		m.cmdInput.Focus()
+	} else {
+		m.activeInputIdx = 0
+		m.cmdInput.Blur()
+		m.nameInput.Focus()
+	}
+	return m
+}
+
+func (m Model) toggleFormTransport() Model {
+	if m.transportType == domain.TransportStdio {
+		m.transportType = domain.TransportHTTP
+	} else {
+		m.transportType = domain.TransportStdio
+	}
+	return m
+}
+
+func (m Model) submitForm() (tea.Model, tea.Cmd) {
+	if m.nameInput.Value() == "" || m.cmdInput.Value() == "" {
+		return m, nil
+	}
+	m.mode = modeDashboard
+	return m, m.deployModuleCmd()
+}
+
+func (m Model) updateFormInputs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	if m.activeInputIdx == 0 {
+		m.nameInput, cmd = m.nameInput.Update(msg)
+	} else {
+		m.cmdInput, cmd = m.cmdInput.Update(msg)
+	}
+	return m, cmd
+}
