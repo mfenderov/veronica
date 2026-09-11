@@ -6,8 +6,6 @@
 [![Go Version](https://img.shields.io/badge/go-1.26-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> *"Veronica, give me a hand!"* — Tony Stark
-
 `veronica` is a lightweight, agent-driven local Model Context Protocol (MCP) gateway and tool multiplexer written in Go. It eliminates tool inflation and fragmented configuration across multiple AI coding harnesses (**Copilot / VS Code**, **OpenCode**, **Pi**, **Claude Code**, and **Cursor**) by serving as a single, unified point of tool administration.
 
 ---
