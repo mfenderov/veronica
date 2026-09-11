@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.3.4 - 2026-09-11
+#### Tests
+- add regression tests for OAuth endpoints and re-auth restart failure surfacing - (c3276de) - Mark Fenderov
+
+- - -
+
 ## v0.3.3 - 2026-09-11
 #### Tests
 - (**e2e**) synthesize ultimate end-to-end gateway test suite - (92129ca) - Mark Fenderov
