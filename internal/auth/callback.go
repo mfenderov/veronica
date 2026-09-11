@@ -9,10 +9,11 @@ import (
 	"sync"
 )
 
-// CallbackResult holds the authorization code and state parameter from an OAuth redirect callback.
+// CallbackResult holds the authorization code, error message, and state parameter from an OAuth redirect callback.
 type CallbackResult struct {
 	Code  string
 	State string
+	Error string
 }
 
 // CallbackServer runs an HTTP server on a local port to capture OAuth redirect callbacks.
@@ -88,9 +89,19 @@ func (s *CallbackServer) WaitForCode(ctx context.Context) (CallbackResult, error
 }
 
 func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
-	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
+	errParam := r.URL.Query().Get("error")
+	if errParam != "" {
+		errDesc := r.URL.Query().Get("error_description")
+		select {
+		case s.codeChan <- CallbackResult{Error: errParam + ": " + errDesc, State: state}:
+		default:
+		}
+		http.Error(w, "OAuth error: "+errParam+" - "+errDesc, http.StatusBadRequest)
+		return
+	}
 
+	code := r.URL.Query().Get("code")
 	if code == "" {
 		http.Error(w, "missing code parameter", http.StatusBadRequest)
 		return

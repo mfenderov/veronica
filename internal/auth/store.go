@@ -136,6 +136,30 @@ type openCodeServerEntry struct {
 	} `json:"tokens"`
 }
 
+func (s *FileAuthStore) shouldImportToken(serverName string, newExpiresAt float64) bool {
+	s.mu.RLock()
+	existing, exists := s.tokens[serverName]
+	s.mu.RUnlock()
+	return !exists || existing.ExpiresAt.Unix() < int64(newExpiresAt)
+}
+
+func (s *FileAuthStore) importSingleOpenCodeEntry(serverName string, entry openCodeServerEntry) error {
+	if entry.Tokens.AccessToken == "" || !s.shouldImportToken(serverName, entry.Tokens.ExpiresAt) {
+		return nil
+	}
+
+	tok := domain.AuthToken{
+		ServerName:   serverName,
+		AccessToken:  entry.Tokens.AccessToken,
+		RefreshToken: entry.Tokens.RefreshToken,
+		TokenType:    "Bearer",
+	}
+	if entry.Tokens.ExpiresAt > 0 {
+		tok.ExpiresAt = time.Unix(int64(entry.Tokens.ExpiresAt), 0)
+	}
+	return s.SaveToken(context.Background(), tok)
+}
+
 // ImportFromOpenCode imports tokens from an OpenCode auth JSON file into the store.
 func (s *FileAuthStore) ImportFromOpenCode(openCodePath string) error {
 	data, err := os.ReadFile(openCodePath)
@@ -152,19 +176,7 @@ func (s *FileAuthStore) ImportFromOpenCode(openCodePath string) error {
 	}
 
 	for serverName, entry := range parsed {
-		if entry.Tokens.AccessToken == "" {
-			continue
-		}
-		tok := domain.AuthToken{
-			ServerName:   serverName,
-			AccessToken:  entry.Tokens.AccessToken,
-			RefreshToken: entry.Tokens.RefreshToken,
-			TokenType:    "Bearer",
-		}
-		if entry.Tokens.ExpiresAt > 0 {
-			tok.ExpiresAt = time.Unix(int64(entry.Tokens.ExpiresAt), 0)
-		}
-		if err := s.SaveToken(context.Background(), tok); err != nil {
+		if err := s.importSingleOpenCodeEntry(serverName, entry); err != nil {
 			return err
 		}
 	}

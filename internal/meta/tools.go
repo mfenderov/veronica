@@ -189,7 +189,10 @@ func (h *Handler) ReauthModule(ctx context.Context, name string) (domain.ReauthR
 		return domain.ReauthResult{}, err
 	}
 
-	_ = h.restartModuleClient(ctx, mod)
+	if restartErr := h.restartModuleClient(ctx, mod); restartErr != nil {
+		h.registry.RegisterError(mod, restartErr)
+		return domain.ReauthResult{}, fmt.Errorf("auth succeeded but failed to start module %s: %w", name, restartErr)
+	}
 
 	return domain.ReauthResult{
 		Name:      name,

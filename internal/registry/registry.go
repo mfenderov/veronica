@@ -83,18 +83,21 @@ func (r *Registry) RegisterError(mod *domain.Module, err error) {
 // Unregister removes a module and its client from the registry, stopping the client process.
 func (r *Registry) Unregister(name string) error {
 	r.mu.Lock()
-	client, exists := r.clients[name]
+	_, exists := r.modules[name]
 	if !exists {
 		r.mu.Unlock()
 		return domain.ErrModuleNotFound
 	}
 
+	client := r.clients[name]
 	delete(r.modules, name)
 	delete(r.clients, name)
 	r.rebuildCatalogLocked()
 	r.mu.Unlock()
 
-	_ = client.Stop(context.Background())
+	if client != nil {
+		_ = client.Stop(context.Background())
+	}
 	r.notifyListeners()
 	return nil
 }
