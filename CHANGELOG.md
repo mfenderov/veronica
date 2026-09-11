@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.4.1 - 2026-09-11
+#### Documentation
+- update README with OAuth PKCE config and add CLAUDE.md architecture guide - (b639069) - Mark Fenderov
+
+- - -
+
 ## v0.4.0 - 2026-09-11
 #### Features
 - align atlassian v2 endpoint, add pkce oauth, and expose tool schemas - (034c2c8) - Mark Fenderov
