@@ -257,6 +257,9 @@ func (m *OAuthManager) waitForValidatedCode(ctx context.Context, cb *CallbackSer
 	if err != nil {
 		return "", fmt.Errorf("waiting for authorization code: %w", err)
 	}
+	if res.Error != "" {
+		return "", fmt.Errorf("oauth provider error: %s", res.Error)
+	}
 	if res.State != "" && res.State != expectedState {
 		return "", errors.New("mismatched OAuth state parameter")
 	}
@@ -265,11 +268,11 @@ func (m *OAuthManager) waitForValidatedCode(ctx context.Context, cb *CallbackSer
 
 func resolveCallbackBindAddr(redirectURL string) string {
 	if redirectURL != "" {
-		if u, err := url.Parse(redirectURL); err == nil && u.Host != "" {
-			return u.Host
+		if u, err := url.Parse(redirectURL); err == nil && u.Port() != "" {
+			return ":" + u.Port()
 		}
 	}
-	return "127.0.0.1:9091"
+	return ":9091"
 }
 
 func generateRandomState() string {
