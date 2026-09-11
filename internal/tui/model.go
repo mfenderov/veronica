@@ -1,3 +1,4 @@
+// Package tui provides an interactive terminal user interface for monitoring and managing the Veronica gateway.
 package tui
 
 import (
@@ -33,6 +34,7 @@ type actionResultMsg struct {
 	isError bool
 }
 
+// Model represents the Bubble Tea model and state for the Veronica interactive TUI.
 type Model struct {
 	service        domain.PodService
 	modules        []domain.ModuleSummary
@@ -49,13 +51,14 @@ type Model struct {
 	statusIsError  bool
 }
 
+// NewModel creates an initialized TUI Model connected to the specified PodService.
 func NewModel(service domain.PodService) Model {
 	nameInput := textinput.New()
 	nameInput.Placeholder = "module-name (e.g. postgres)"
 	nameInput.Focus()
 
 	cmdInput := textinput.New()
-	cmdInput.Placeholder = "command or url (e.g. /bin/pg-mcp)"
+	cmdInput.Placeholder = "command (e.g. /bin/pg-mcp)"
 
 	return Model{
 		service:       service,
@@ -69,6 +72,7 @@ func NewModel(service domain.PodService) Model {
 	}
 }
 
+// Init sets up initial commands to load status and module lists upon TUI startup.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadStatusCmd(),
@@ -149,6 +153,18 @@ func (m Model) reauthModuleCmd(name string) tea.Cmd {
 		res, err := m.service.ReauthModule(ctx, name)
 		if err != nil {
 			return actionResultMsg{message: fmt.Sprintf("Reauth failed: %v", err), isError: true}
+		}
+		return actionResultMsg{message: res.Message, isError: false}
+	}
+}
+
+func (m Model) restartDaemonCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+		defer cancel()
+		res, err := m.service.RestartDaemon(ctx)
+		if err != nil {
+			return actionResultMsg{message: fmt.Sprintf("Restart failed: %v", err), isError: true}
 		}
 		return actionResultMsg{message: res.Message, isError: false}
 	}

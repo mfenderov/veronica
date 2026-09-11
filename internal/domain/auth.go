@@ -1,9 +1,11 @@
+// Package domain defines the core business models, interfaces, and service contracts for Veronica.
 package domain
 
 import (
 	"time"
 )
 
+// AuthToken represents an OAuth authentication token for an MCP server.
 type AuthToken struct {
 	ServerName   string    `json:"server_name"`
 	AccessToken  string    `json:"access_token"`
@@ -13,6 +15,7 @@ type AuthToken struct {
 	Scopes       []string  `json:"scopes,omitempty"`
 }
 
+// IsExpired reports whether the authentication token has expired relative to the given time.
 func (t AuthToken) IsExpired(now time.Time) bool {
 	if t.ExpiresAt.IsZero() {
 		return false
@@ -20,6 +23,7 @@ func (t AuthToken) IsExpired(now time.Time) bool {
 	return now.After(t.ExpiresAt)
 }
 
+// WillExpireSoon reports whether the token will expire within the specified duration window from now.
 func (t AuthToken) WillExpireSoon(now time.Time, window time.Duration) bool {
 	if t.ExpiresAt.IsZero() {
 		return false
@@ -27,6 +31,7 @@ func (t AuthToken) WillExpireSoon(now time.Time, window time.Duration) bool {
 	return now.Add(window).After(t.ExpiresAt)
 }
 
+// OAuthClientConfig holds client-side configuration parameters for OAuth 2.0 authentication flows.
 type OAuthClientConfig struct {
 	ServerName   string   `json:"server_name" yaml:"server_name"`
 	ClientID     string   `json:"client_id" yaml:"client_id"`

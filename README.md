@@ -3,12 +3,12 @@
 **Autonomous Local MCP Gateway & Dynamic Tool Pod**
 
 [![CI](https://github.com/mfenderov/veronica/actions/workflows/ci.yml/badge.svg)](https://github.com/mfenderov/veronica/actions/workflows/ci.yml)
-[![Go Version](https://img.shields.io/badge/go-1.24-blue.svg)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/go-1.26-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > *"Veronica, give me a hand!"* — Tony Stark
 
-`veronica` is a lightweight, agent-driven local Model Context Protocol (MCP) gateway and tool multiplexer written in Go. It eliminates tool inflation and fragmented configuration across multiple AI coding harnesses (**Copilot / VS Code**, **OpenCode**, and **Pi**) by serving as a single, unified point of tool administration.
+`veronica` is a lightweight, agent-driven local Model Context Protocol (MCP) gateway and tool multiplexer written in Go. It eliminates tool inflation and fragmented configuration across multiple AI coding harnesses (**Copilot / VS Code**, **OpenCode**, **Pi**, **Claude Code**, and **Cursor**) by serving as a single, unified point of tool administration.
 
 ---
 
@@ -16,8 +16,8 @@
 
 1. **Autonomous Tool Pod (Agent-Managed)**:
    Veronica exposes built-in **meta-tools** (`veronica_list_modules`, `veronica_deploy_module`, `veronica_recall_module`, `veronica_toggle_module`, `veronica_reauth_module`, `veronica_status`). Connected AI assistants can discover, mount, retire, and refresh tools on demand without human configuration edits.
-2. **Harmonized Trio**:
-   Copilot, OpenCode, and Pi connect to a single SSE/Streamable HTTP endpoint (`http://localhost:9090/sse`). Any tool mounted in Veronica is immediately available across all harnesses.
+2. **Harmonized Harnesses**:
+   Copilot, VS Code, OpenCode, Pi, Claude Code, and Cursor connect to a single SSE/Streamable HTTP endpoint (`http://localhost:9090/sse`). Any tool mounted in Veronica is immediately available across all harnesses.
 3. **No Docker Desktop**:
    Zero container overhead. Spawns local CLI MCP processes natively and proxies remote HTTP/SSE servers with sub-millisecond dispatch and ~2MB RAM footprint.
 4. **Centralized OAuth & Secrets**:
@@ -36,20 +36,31 @@
 ### 1. Homebrew (macOS)
 ```bash
 brew install mfenderov/tap/veronica
+# Or manually tap first:
+# brew tap mfenderov/tap && brew install veronica
 ```
 
-### 2. Go Toolchain
+### 2. Go Toolchain (Requires Go 1.26+)
 ```bash
 go install github.com/mfenderov/veronica/cmd/veronica@latest
 ```
+*Ensure `$(go env GOPATH)/bin` (typically `~/go/bin`) is in your `$PATH`.*
 
 ### 3. One-Liner Script (macOS / Linux)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mfenderov/veronica/main/install.sh | bash
 ```
+*Automatically detects OS (`darwin` / `linux`) and architecture (`arm64` / `amd64`), downloads the latest release tarball, and installs `veronica` to `~/.local/bin` or `~/bin`.*
 
 ### 4. GitHub Releases (Pre-built Binaries)
-Download pre-built universal binary archives for macOS (`darwin/arm64`, `darwin/amd64`) and Linux (`linux/amd64`, `linux/arm64`) from the [Releases](https://github.com/mfenderov/veronica/releases) page.
+Download pre-built universal binary archives and `checksums.txt` for macOS (`darwin/arm64`, `darwin/amd64`) and Linux (`linux/amd64`, `linux/arm64`) from the [Releases](https://github.com/mfenderov/veronica/releases) page.
+
+### 5. Build from Source
+```bash
+git clone https://github.com/mfenderov/veronica.git
+cd veronica
+make install  # Compiles binary and installs to ~/bin/veronica
+```
 
 ---
 
@@ -57,7 +68,7 @@ Download pre-built universal binary archives for macOS (`darwin/arm64`, `darwin/
 
 ```text
 ┌────────────────────────────────────────────────────────┐
-│ AI Clients (Copilot / VS Code, OpenCode, Pi)           │
+│ AI Clients (Copilot, OpenCode, Pi, Claude Code, Cursor)│
 └───────────────────────────┬────────────────────────────┘
                             │ Single Endpoint: http://localhost:9090/sse
                             ▼
@@ -98,16 +109,27 @@ veronica tui
 
 ### Keyboard Shortcuts
 
+#### Dashboard View
+
 | Shortcut | Action | Description |
 | :--- | :--- | :--- |
 | **`↑` / `↓`** or **`j` / `k`** | **Navigate** | Move cursor between configured MCP modules |
 | **`Space`** | **Toggle** | Enable or disable the selected module on the fly |
 | **`e`** | **Edit** | Edit target command/URL or transport in-place |
 | **`A`** or **`Ctrl+A`** | **Re-auth** | Force immediate OAuth token refresh and reconnect client |
-| **`a`** | **Deploy** | Open modal dialog to deploy a new MCP module (`Ctrl+T` to flip transport) |
+| **`a`** | **Deploy** | Open modal dialog to deploy a new MCP module |
 | **`d`** | **Recall** | Gracefully unmount and remove the selected module |
 | **`r`** | **Refresh** | Re-query daemon metrics and reload module catalog |
 | **`q`** or **`Ctrl+C`** | **Quit** | Exit the TUI |
+
+#### Modal Dialog Controls (Deploy & Edit)
+
+| Shortcut | Action | Description |
+| :--- | :--- | :--- |
+| **`Tab`** | **Switch Field** | Toggle focus between Module Name and Command / URL input fields |
+| **`Ctrl+T`** | **Toggle Transport** | Flip transport mode between `stdio` and `http` |
+| **`Enter`** | **Submit** | Confirm and deploy the module or save configuration edits |
+| **`Esc`** | **Cancel** | Close the modal dialog and return to the main dashboard |
 
 ---
 
@@ -129,13 +151,25 @@ Veronica equips connected AI agents with tools to manage their own tool environm
 ## CLI Usage
 
 ```bash
-# Start the gateway daemon
+# Start the gateway daemon (SSE / HTTP server on :9090)
 veronica serve
 
-# List configured modules
+# Start with a custom configuration file path
+veronica serve --config ~/.config/veronica/config.yaml
+
+# Run directly as a stdio MCP server (for single-client subprocess mode)
+veronica serve --stdio
+
+# Launch the interactive Charm TUI dashboard
+veronica tui
+
+# Connect TUI to a custom gateway endpoint
+veronica tui --endpoint http://localhost:9090/sse
+
+# List configured modules and target endpoints
 veronica list
 
-# Show version
+# Show Veronica version
 veronica version
 ```
 
@@ -151,7 +185,7 @@ veronica serve
 *(Or keep it running 24/7 in the background as a macOS LaunchAgent).*
 
 ### 2. Mount Mark42 into Veronica
-Mount your MCP server using the TUI (`veronica tui` -> press `a`), or add it directly to `~/.config/veronica/config.yaml`:
+Mount your MCP server dynamically using the TUI (`veronica tui` -> press `a`), ask your AI assistant to call `veronica_deploy_module`, or add it to `~/.config/veronica/config.yaml` before starting the daemon:
 
 ```yaml
 modules:
@@ -161,7 +195,7 @@ modules:
     command: /opt/homebrew/bin/mark42-server
 ```
 
-Veronica immediately spawns Mark42, introspects its capabilities, and mounts its tools (`mark42_search_nodes`, `mark42_read_graph`, etc.) into the live catalog.
+Veronica immediately spawns Mark42, introspects its capabilities, and mounts its tools (`mark42_search_nodes`, `mark42_read_graph`, etc.) into the live catalog. It also registers un-prefixed aliases (`search_nodes`) for seamless backward compatibility and broadcasts an MCP `notifications/tools/list_changed` event to all connected clients.
 
 ### 3. Connect OpenCode to Veronica (Once)
 In `~/.config/opencode/opencode.jsonc`, point OpenCode to Veronica:
@@ -184,7 +218,7 @@ Open your OpenCode chat and ask:
 > *"What architecture decisions do we have recorded for our Go microservices?"*
 
 **Behind the Scenes:**
-1. OpenCode issues an MCP tool call: `mark42_search_nodes(query="Go microservices")`.
+1. OpenCode issues an MCP tool call: `mark42_search_nodes(query="Go microservices")` (or `search_nodes(...)`).
 2. Veronica catches the request on `:9090/sse` and routes it over stdio JSON-RPC to the supervised `mark42-server` process.
 3. Mark42 queries its local knowledge graph and returns the entities.
 4. Veronica delivers the payload back to OpenCode's context window with sub-millisecond dispatch.
@@ -193,11 +227,39 @@ Open your OpenCode chat and ask:
 
 ## Client Configurations
 
-Veronica supports both **HTTP/SSE** (daemon mode via LaunchAgent) and **Stdio** (direct subprocess mode).
+Veronica supports both **HTTP/SSE** (daemon mode via LaunchAgent or `veronica serve`) and **Stdio** (direct subprocess mode via `veronica serve --stdio`).
 
-### 1. VS Code & Copilot
+### 1. VS Code
 
-In `~/Library/Application Support/Code/User/mcp.json` and `~/.copilot/mcp-config.json`:
+In workspace `.vscode/mcp.json` or user profile `mcp.json` (`~/Library/Application Support/Code/User/mcp.json` on macOS, `~/.config/Code/User/mcp.json` on Linux):
+
+```json
+{
+  "servers": {
+    "veronica": {
+      "type": "http",
+      "url": "http://localhost:9090/sse"
+    }
+  }
+}
+```
+
+*Or via local stdio:*
+```json
+{
+  "servers": {
+    "veronica": {
+      "type": "stdio",
+      "command": "veronica",
+      "args": ["serve", "--stdio"]
+    }
+  }
+}
+```
+
+### 2. GitHub Copilot CLI
+
+In `~/.copilot/mcp-config.json` (or workspace `.mcp.json`):
 
 ```json
 {
@@ -216,8 +278,8 @@ In `~/Library/Application Support/Code/User/mcp.json` and `~/.copilot/mcp-config
 {
   "mcpServers": {
     "veronica": {
-      "type": "local",
-      "command": "/Users/mark.fenderov/bin/veronica",
+      "type": "stdio",
+      "command": "veronica",
       "args": ["serve", "--stdio"],
       "tools": ["*"]
     }
@@ -225,7 +287,7 @@ In `~/Library/Application Support/Code/User/mcp.json` and `~/.copilot/mcp-config
 }
 ```
 
-### 2. OpenCode
+### 3. OpenCode
 
 In `~/.config/opencode/opencode.jsonc`:
 
@@ -240,7 +302,19 @@ In `~/.config/opencode/opencode.jsonc`:
 }
 ```
 
-### 3. Pi
+*Or via local stdio:*
+```jsonc
+{
+  "mcp": {
+    "veronica": {
+      "type": "local",
+      "command": ["veronica", "serve", "--stdio"]
+    }
+  }
+}
+```
+
+### 4. Pi
 
 In `~/.pi/agent/mcp.json`:
 
@@ -249,6 +323,69 @@ In `~/.pi/agent/mcp.json`:
   "mcpServers": {
     "veronica": {
       "url": "http://localhost:9090/sse"
+    }
+  }
+}
+```
+
+*Or via local stdio:*
+```json
+{
+  "mcpServers": {
+    "veronica": {
+      "command": "veronica",
+      "args": ["serve", "--stdio"]
+    }
+  }
+}
+```
+
+### 5. Claude Code
+
+Connect to Veronica with the `claude mcp` CLI:
+
+```bash
+# Connect to background daemon via SSE
+claude mcp add --transport sse veronica http://localhost:9090/sse
+
+# Or run directly via local stdio
+claude mcp add veronica -- veronica serve --stdio
+```
+
+*Or via project `.mcp.json` / `~/.claude.json`:*
+```json
+{
+  "mcpServers": {
+    "veronica": {
+      "type": "sse",
+      "url": "http://localhost:9090/sse"
+    }
+  }
+}
+```
+
+### 6. Cursor
+
+In `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (workspace):
+
+```json
+{
+  "mcpServers": {
+    "veronica": {
+      "url": "http://localhost:9090/sse"
+    }
+  }
+}
+```
+
+*Or via local stdio:*
+```json
+{
+  "mcpServers": {
+    "veronica": {
+      "type": "stdio",
+      "command": "veronica",
+      "args": ["serve", "--stdio"]
     }
   }
 }

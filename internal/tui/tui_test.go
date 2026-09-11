@@ -61,6 +61,10 @@ func (m *mockPodService) ReauthModule(ctx context.Context, name string) (domain.
 	return domain.ReauthResult{Name: name, Success: true, Message: "reauth ok"}, nil
 }
 
+func (m *mockPodService) RestartDaemon(ctx context.Context) (domain.RestartResult, error) {
+	return domain.RestartResult{Success: true, Message: "reloaded ok"}, nil
+}
+
 func TestTUI_Lifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -418,8 +422,82 @@ func TestTUI_EditAndReauth(t *testing.T) {
 	}
 
 	// 3. Test submitting edit form
-	_, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	u, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("expected deploy command on enter in edit mode")
+	}
+	updated = u.(tui.Model)
+
+	// 4. Test Reload Daemon key (R)
+	u, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	if cmd == nil {
+		t.Fatal("expected restart command on 'R'")
+	}
+	u, _ = u.Update(cmd())
+	view = u.View()
+	if !strings.Contains(view, "reloaded ok") {
+		t.Fatalf("expected reload message in status, got view: %s", view)
+	}
+}
+
+func TestTUI_FooterKeysAndPlaceholders(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockPodService{
+		status: domain.GatewayStatus{Uptime: "1h", ActiveModules: 1},
+		modules: []domain.ModuleSummary{
+			{Name: "mark42", Transport: domain.TransportStdio, Status: domain.StatusActive, Target: "/bin/mark42"},
+		},
+	}
+
+	model := tui.NewModel(svc)
+	cmd := model.Init()
+	updated := model
+	if batchMsg, ok := cmd().(tea.BatchMsg); ok {
+		for _, subCmd := range batchMsg {
+			if subCmd != nil {
+				u, _ := updated.Update(subCmd())
+				updated = u.(tui.Model)
+			}
+		}
+	}
+
+	// 1. Verify all footer keys are documented in dashboard view
+	view := updated.View()
+	for _, key := range []string{"[Space]", "[e]", "[A]", "[a]", "[d]", "[r]", "[q]"} {
+		if !strings.Contains(view, key) {
+			t.Errorf("expected footer to document key %s, got view: %s", key, view)
+		}
+	}
+
+	// 2. Test Refresh (r) updates status message
+	u, _ := updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	updated = u.(tui.Model)
+	if !strings.Contains(updated.View(), "Catalog refreshed") {
+		t.Fatalf("expected 'Catalog refreshed' in view after pressing 'r', got: %s", updated.View())
+	}
+
+	// 3. Test Add mode (a) input placeholders and dynamic labels
+	u, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	updated = u.(tui.Model)
+	addModal := updated.View()
+	if !strings.Contains(addModal, "Command:") {
+		t.Fatalf("expected 'Command:' label for stdio transport in add modal, got: %s", addModal)
+	}
+
+	// Toggle to HTTP with Ctrl+T
+	u, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	updated = u.(tui.Model)
+	httpModal := updated.View()
+	if !strings.Contains(httpModal, "Endpoint URL:") {
+		t.Fatalf("expected 'Endpoint URL:' label for http transport after toggle, got: %s", httpModal)
+	}
+
+	// Toggle back to stdio with Ctrl+T
+	u, _ = updated.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	updated = u.(tui.Model)
+	stdioModal := updated.View()
+	if !strings.Contains(stdioModal, "Command:") {
+		t.Fatalf("expected 'Command:' label after toggling back to stdio, got: %s", stdioModal)
 	}
 }

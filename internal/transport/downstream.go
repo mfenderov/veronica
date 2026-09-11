@@ -1,3 +1,4 @@
+// Package transport implements downstream MCP client adapters and the upstream MCP server gateway.
 package transport
 
 import (
@@ -13,6 +14,7 @@ import (
 	"github.com/mfenderov/veronica/internal/domain"
 )
 
+// DownstreamAdapter implements domain.DownstreamClient for connecting to and interacting with an external MCP server.
 type DownstreamAdapter struct {
 	config        domain.ModuleConfig
 	mcpClient     *client.Client
@@ -20,6 +22,7 @@ type DownstreamAdapter struct {
 	tokenProvider domain.TokenProvider
 }
 
+// NewDownstreamClient creates a new downstream client adapter for the given module configuration and token provider.
 func NewDownstreamClient(ctx context.Context, cfg domain.ModuleConfig, tokenProvider domain.TokenProvider) (domain.DownstreamClient, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -34,6 +37,7 @@ func NewDownstreamClient(ctx context.Context, cfg domain.ModuleConfig, tokenProv
 	return adapter, nil
 }
 
+// Start launches the downstream transport, connects to the MCP server, and performs initialization.
 func (a *DownstreamAdapter) Start(ctx context.Context) error {
 	a.status = domain.StatusStarting
 
@@ -147,6 +151,7 @@ func (a *DownstreamAdapter) createHTTPClient(ctx context.Context) (*client.Clien
 	)
 }
 
+// Stop shuts down the downstream client and terminates its underlying transport.
 func (a *DownstreamAdapter) Stop(ctx context.Context) error {
 	a.status = domain.StatusInactive
 	if a.mcpClient != nil {
@@ -155,6 +160,7 @@ func (a *DownstreamAdapter) Stop(ctx context.Context) error {
 	return nil
 }
 
+// ListTools queries the downstream MCP server for its supported tools.
 func (a *DownstreamAdapter) ListTools(ctx context.Context) ([]domain.Tool, error) {
 	if a.mcpClient == nil {
 		return nil, domain.ErrModuleNotFound
@@ -178,6 +184,7 @@ func (a *DownstreamAdapter) ListTools(ctx context.Context) ([]domain.Tool, error
 	return tools, nil
 }
 
+// CallTool invokes a tool call on the downstream MCP server.
 func (a *DownstreamAdapter) CallTool(ctx context.Context, call domain.ToolCall) (domain.ToolResult, error) {
 	if a.mcpClient == nil {
 		return domain.ToolResult{}, domain.ErrModuleNotFound
@@ -211,6 +218,7 @@ func (a *DownstreamAdapter) CallTool(ctx context.Context, call domain.ToolCall) 
 	}, nil
 }
 
+// Status returns the current lifecycle status of the downstream module.
 func (a *DownstreamAdapter) Status() domain.ModuleStatus {
 	return a.status
 }

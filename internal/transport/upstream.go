@@ -13,6 +13,7 @@ import (
 	"github.com/mfenderov/veronica/internal/registry"
 )
 
+// UpstreamServer is the MCP gateway server exposing aggregated and custom tools over HTTP, SSE, and Stdio.
 type UpstreamServer struct {
 	mu          sync.RWMutex
 	mcpServer   *server.MCPServer
@@ -23,6 +24,7 @@ type UpstreamServer struct {
 	httpServer  *http.Server
 }
 
+// NewUpstreamServer creates an UpstreamServer connected to the module registry.
 func NewUpstreamServer(reg *registry.Registry) *UpstreamServer {
 	s := server.NewMCPServer("veronica", "1.0.0")
 	sse := server.NewSSEServer(s)
@@ -44,6 +46,7 @@ func NewUpstreamServer(reg *registry.Registry) *UpstreamServer {
 	return u
 }
 
+// Handler returns an http.Handler that multiplexes legacy SSE and modern streamable HTTP requests.
 func (u *UpstreamServer) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. Legacy SSE GET /sse
@@ -61,6 +64,7 @@ func (u *UpstreamServer) Handler() http.Handler {
 	})
 }
 
+// RegisterCustomTool registers a gateway-level custom tool and handler.
 func (u *UpstreamServer) RegisterCustomTool(
 	tool domain.Tool,
 	handler func(ctx context.Context, args any) (domain.ToolResult, error),
@@ -128,6 +132,7 @@ func toMCPResult(res domain.ToolResult) *mcp.CallToolResult {
 	}
 }
 
+// Start launches the HTTP server listening on the provided address.
 func (u *UpstreamServer) Start(addr string) error {
 	u.mu.Lock()
 	u.httpServer = &http.Server{
@@ -140,10 +145,12 @@ func (u *UpstreamServer) Start(addr string) error {
 	return srv.ListenAndServe()
 }
 
+// ServeStdio starts the MCP gateway over standard input and output.
 func (u *UpstreamServer) ServeStdio() error {
 	return server.ServeStdio(u.mcpServer)
 }
 
+// Shutdown gracefully shuts down the HTTP server and terminates active SSE sessions.
 func (u *UpstreamServer) Shutdown(ctx context.Context) error {
 	u.mu.RLock()
 	srv := u.httpServer
@@ -156,11 +163,13 @@ func (u *UpstreamServer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// SerializeJSON serializes a value into an indented JSON string.
 func SerializeJSON(v any) string {
 	b, _ := json.MarshalIndent(v, "", "  ")
 	return string(b)
 }
 
+// ResultText constructs a successful ToolResult containing the given text.
 func ResultText(text string) domain.ToolResult {
 	return domain.ToolResult{
 		Content: []domain.ToolContent{
@@ -169,10 +178,12 @@ func ResultText(text string) domain.ToolResult {
 	}
 }
 
+// ResultJSON constructs a successful ToolResult containing the indented JSON representation of v.
 func ResultJSON(v any) domain.ToolResult {
 	return ResultText(SerializeJSON(v))
 }
 
+// ResultError constructs an error ToolResult wrapping the provided error.
 func ResultError(err error) domain.ToolResult {
 	return domain.ToolResult{
 		Content: []domain.ToolContent{

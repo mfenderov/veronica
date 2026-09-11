@@ -1,3 +1,4 @@
+// Package registry provides module registration, tool catalog aggregation, namespacing, and routing for Veronica.
 package registry
 
 import (
@@ -15,6 +16,7 @@ type toolRoute struct {
 	downstreamName string
 }
 
+// Registry maintains active downstream modules, aggregates their tools into a unified catalog, and routes tool calls.
 type Registry struct {
 	mu         sync.RWMutex
 	modules    map[string]*domain.Module
@@ -24,6 +26,7 @@ type Registry struct {
 	listeners  []func()
 }
 
+// New creates an initialized empty Registry.
 func New() *Registry {
 	return &Registry{
 		modules:    make(map[string]*domain.Module),
@@ -34,6 +37,7 @@ func New() *Registry {
 	}
 }
 
+// OnToolsChanged registers a listener callback to be invoked whenever the aggregated tool catalog changes.
 func (r *Registry) OnToolsChanged(fn func()) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -46,6 +50,7 @@ func (r *Registry) notifyListeners() {
 	}
 }
 
+// Register registers a downstream module and client, discovers its tools, and updates the aggregated catalog.
 func (r *Registry) Register(mod *domain.Module, client domain.DownstreamClient) error {
 	tools, err := client.ListTools(context.Background())
 	if err != nil {
@@ -63,6 +68,7 @@ func (r *Registry) Register(mod *domain.Module, client domain.DownstreamClient) 
 	return nil
 }
 
+// Unregister removes a module and its client from the registry, stopping the client process.
 func (r *Registry) Unregister(name string) error {
 	r.mu.Lock()
 	client, exists := r.clients[name]
@@ -81,6 +87,7 @@ func (r *Registry) Unregister(name string) error {
 	return nil
 }
 
+// Deactivate transitions an active module to inactive, stops its client, and removes its tools from the catalog.
 func (r *Registry) Deactivate(name string) error {
 	r.mu.Lock()
 	mod, exists := r.modules[name]
@@ -153,6 +160,7 @@ func (r *Registry) rebuildCatalogLocked() {
 	}
 }
 
+// ListModules returns a sorted list of all modules currently in the registry.
 func (r *Registry) ListModules() []*domain.Module {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -167,6 +175,7 @@ func (r *Registry) ListModules() []*domain.Module {
 	return list
 }
 
+// GetModule retrieves a module by name from the registry, returning false if not found.
 func (r *Registry) GetModule(name string) (*domain.Module, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -175,6 +184,7 @@ func (r *Registry) GetModule(name string) (*domain.Module, bool) {
 	return m, ok
 }
 
+// ListTools returns a snapshot of all aggregated tools currently available across active modules.
 func (r *Registry) ListTools() []domain.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -184,6 +194,7 @@ func (r *Registry) ListTools() []domain.Tool {
 	return out
 }
 
+// CallTool routes a tool call to the owning downstream module client.
 func (r *Registry) CallTool(ctx context.Context, call domain.ToolCall) (domain.ToolResult, error) {
 	r.mu.RLock()
 	route, ok := r.toolRoutes[call.ToolName]
@@ -206,6 +217,7 @@ func (r *Registry) CallTool(ctx context.Context, call domain.ToolCall) (domain.T
 	return client.CallTool(ctx, downstreamCall)
 }
 
+// FormatExposedToolName ensures a tool name is namespaced with its module prefix.
 func FormatExposedToolName(modName, toolName string) string {
 	prefix := modName + "_"
 	if strings.HasPrefix(toolName, prefix) || strings.HasPrefix(toolName, modName+"-") {
@@ -214,6 +226,7 @@ func FormatExposedToolName(modName, toolName string) string {
 	return prefix + toolName
 }
 
+// FormatExposedDescription prepends a [module] tag to the tool description if not already present.
 func FormatExposedDescription(modName, desc string) string {
 	tag := "[" + modName + "]"
 	if strings.HasPrefix(desc, tag) {
