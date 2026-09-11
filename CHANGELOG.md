@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.2.2 - 2026-09-11
+#### Bug Fixes
+- (**ci**) guarantee automatic release on every push to main with patch fallback - (62c3ed8) - Mark Fenderov
+
+- - -
+
 ## v0.2.0 - 2026-09-11
 #### Features
 - simplify entrypoint to direct 'veronica' with detached daemon auto-boot and in-TUI reload - (d53c336) - Mark Fenderov
