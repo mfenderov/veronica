@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.3.2 - 2026-09-11
+#### Bug Fixes
+- update Atlassian OAuth configuration to use dedicated MCP endpoints - (5b4c859) - Mark Fenderov
+
+- - -
+
 ## v0.3.1 - 2026-09-11
 #### Bug Fixes
 - preserve modules in registry with error status when downstream start fails - (025ed1c) - Mark Fenderov
