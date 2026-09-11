@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.4.0 - 2026-09-11
+#### Features
+- align atlassian v2 endpoint, add pkce oauth, and expose tool schemas - (034c2c8) - Mark Fenderov
+
+- - -
+
 ## v0.3.4 - 2026-09-11
 #### Tests
 - add regression tests for OAuth endpoints and re-auth restart failure surfacing - (c3276de) - Mark Fenderov
