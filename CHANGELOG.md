@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.2.0 - 2026-09-11
+#### Features
+- simplify entrypoint to direct 'veronica' with detached daemon auto-boot and in-TUI reload - (d53c336) - Mark Fenderov
+#### Documentation
+- add OpenCode + Mark42 end-to-end walkthrough and remove hardcoded module table - (0de4533) - Mark Fenderov
+
+- - -
+
 ## v0.1.0 - 2026-09-11
 #### Features
 - initialize veronica autonomous local MCP gateway and Charm TUI - (7247876) - Mark Fenderov
