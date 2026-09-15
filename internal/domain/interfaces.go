@@ -2,6 +2,17 @@ package domain
 
 import (
 	"context"
+	"encoding/json"
+)
+
+// MCP content block types, mirroring the string values used on the wire by the
+// Model Context Protocol content union.
+const (
+	ContentTypeText     = "text"
+	ContentTypeImage    = "image"
+	ContentTypeAudio    = "audio"
+	ContentTypeLink     = "resource_link"
+	ContentTypeResource = "resource"
 )
 
 // ToolCall represents a request to execute an MCP tool with the specified name and arguments.
@@ -11,11 +22,17 @@ type ToolCall struct {
 }
 
 // ToolContent represents a single content item returned by an MCP tool execution.
+//
+// Type, Text, Data and MIMEType are the flattened view of the MCP content union
+// that text-only consumers can rely on. Raw holds the verbatim MCP content block
+// (base64 payloads, resource URIs, annotations, ...) so that block types with no
+// flattened representation survive a gateway round trip unchanged.
 type ToolContent struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	Data     string `json:"data,omitempty"`
-	MIMEType string `json:"mimeType,omitempty"`
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	Data     string          `json:"data,omitempty"`
+	MIMEType string          `json:"mimeType,omitempty"`
+	Raw      json.RawMessage `json:"raw,omitempty"`
 }
 
 // ToolResult encapsulates the outcome of executing an MCP tool.
@@ -34,6 +51,7 @@ type DownstreamClient interface {
 }
 
 // AuthStore defines persistent storage operations for MCP server authentication tokens.
+// GetToken returns an error wrapping ErrTokenNotFound when no token is stored.
 type AuthStore interface {
 	GetToken(ctx context.Context, serverName string) (*AuthToken, error)
 	SaveToken(ctx context.Context, token AuthToken) error

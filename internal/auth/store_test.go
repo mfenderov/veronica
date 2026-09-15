@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,6 +13,29 @@ import (
 	"github.com/mfenderov/veronica/internal/auth"
 	"github.com/mfenderov/veronica/internal/domain"
 )
+
+// The AuthStore port lives in domain, so a caller can only detect a missing token
+// without importing a concrete adapter if the sentinel is owned by domain.
+func TestAuthStoreMissingTokenReportsDomainSentinel(t *testing.T) {
+	t.Parallel()
+
+	store, err := auth.NewFileStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	tok, err := store.GetToken(t.Context(), "slack")
+
+	if !errors.Is(err, domain.ErrTokenNotFound) {
+		t.Fatalf("GetToken err = %v, want domain.ErrTokenNotFound", err)
+	}
+	if !errors.Is(err, auth.ErrTokenNotFound) {
+		t.Fatalf("GetToken err = %v, want auth.ErrTokenNotFound alias to match", err)
+	}
+	if tok != nil {
+		t.Fatalf("expected nil token, got %+v", tok)
+	}
+}
 
 func TestFileAuthStore(t *testing.T) {
 	t.Parallel()
@@ -28,8 +52,8 @@ func TestFileAuthStore(t *testing.T) {
 
 	// Initial empty
 	tok, err := store.GetToken(ctx, "slack")
-	if err != nil {
-		t.Fatalf("GetToken failed: %v", err)
+	if !errors.Is(err, auth.ErrTokenNotFound) {
+		t.Fatalf("GetToken err = %v, want ErrTokenNotFound", err)
 	}
 	if tok != nil {
 		t.Fatalf("expected nil token, got %+v", tok)
@@ -76,8 +100,8 @@ func TestFileAuthStore(t *testing.T) {
 		t.Fatalf("DeleteToken failed: %v", err)
 	}
 	gotDeleted, err := store.GetToken(ctx, "slack")
-	if err != nil {
-		t.Fatalf("GetToken after delete failed: %v", err)
+	if !errors.Is(err, auth.ErrTokenNotFound) {
+		t.Fatalf("GetToken after delete err = %v, want ErrTokenNotFound", err)
 	}
 	if gotDeleted != nil {
 		t.Fatalf("expected nil token after delete, got %+v", gotDeleted)
@@ -374,5 +398,22 @@ func TestOAuthManager_PKCEExchange(t *testing.T) {
 	}
 	if receivedVerifier == "" {
 		t.Fatal("expected code_verifier in token exchange request")
+	}
+}
+
+func TestFileAuthStore_MissingTokenReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	store, err := auth.NewFileStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	tok, err := store.GetToken(t.Context(), "slack")
+	if !errors.Is(err, auth.ErrTokenNotFound) {
+		t.Fatalf("GetToken err = %v, want ErrTokenNotFound", err)
+	}
+	if tok != nil {
+		t.Fatalf("expected nil token on miss, got %+v", tok)
 	}
 }
