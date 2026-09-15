@@ -48,7 +48,7 @@ func (a *DownstreamAdapter) Start(ctx context.Context) error {
 	case domain.TransportStdio:
 		mcpClient = a.createStdioClient()
 	case domain.TransportSSE, domain.TransportHTTP:
-		mcpClient, err = a.createHTTPClient(ctx)
+		mcpClient, err = a.createHTTPClient()
 	default:
 		return domain.ErrInvalidTransport
 	}
@@ -132,7 +132,7 @@ func (a *DownstreamAdapter) resolveToken(ctx context.Context) *domain.AuthToken 
 	return nil
 }
 
-func (a *DownstreamAdapter) createHTTPClient(ctx context.Context) (*client.Client, error) {
+func (a *DownstreamAdapter) createHTTPClient() (*client.Client, error) {
 	if a.config.Transport == domain.TransportHTTP {
 		headerFunc := func(callCtx context.Context) map[string]string {
 			return a.getHeaders(callCtx)
@@ -146,7 +146,7 @@ func (a *DownstreamAdapter) createHTTPClient(ctx context.Context) (*client.Clien
 
 	// Legacy SSE
 	return client.NewSSEMCPClient(a.config.URL,
-		client.WithHeaders(a.getHeaders(ctx)),
+		client.WithHeaderFunc(a.getHeaders),
 		client.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}),
 	)
 }
@@ -204,18 +204,59 @@ func (a *DownstreamAdapter) CallTool(ctx context.Context, call domain.ToolCall) 
 
 	contents := make([]domain.ToolContent, 0, len(res.Content))
 	for _, c := range res.Content {
-		if tc, ok := c.(mcp.TextContent); ok {
-			contents = append(contents, domain.ToolContent{
-				Type: "text",
-				Text: tc.Text,
-			})
-		}
+		contents = append(contents, toToolContent(c))
 	}
 
 	return domain.ToolResult{
 		Content: contents,
 		IsError: res.IsError,
 	}, nil
+}
+
+// toToolContent flattens an MCP content block into the domain model so text-only
+// consumers keep working. The verbatim block is retained in Raw so that content
+// with no flattened representation survives a gateway round trip unchanged.
+func toToolContent(c mcp.Content) domain.ToolContent {
+	var content domain.ToolContent
+
+	switch tc := c.(type) {
+	case mcp.TextContent:
+		content.Type = domain.ContentTypeText
+		content.Text = tc.Text
+	case mcp.ImageContent:
+		content.Type = domain.ContentTypeImage
+		content.Data = tc.Data
+		content.MIMEType = tc.MIMEType
+	case mcp.AudioContent:
+		content.Type = domain.ContentTypeAudio
+		content.Data = tc.Data
+		content.MIMEType = tc.MIMEType
+	case mcp.ResourceLink:
+		content.Type = domain.ContentTypeLink
+		content.MIMEType = tc.MIMEType
+	case mcp.EmbeddedResource:
+		content.Type = domain.ContentTypeResource
+		content.MIMEType = resourceContentsMIMEType(tc.Resource)
+	}
+
+	if raw, err := mcp.MarshalContent(c); err == nil {
+		content.Raw = raw
+	}
+
+	return content
+}
+
+// resourceContentsMIMEType reports the MIME type carried by either shape of the
+// sealed ResourceContents union.
+func resourceContentsMIMEType(resource mcp.ResourceContents) string {
+	switch rc := resource.(type) {
+	case mcp.TextResourceContents:
+		return rc.MIMEType
+	case mcp.BlobResourceContents:
+		return rc.MIMEType
+	default:
+		return ""
+	}
 }
 
 // Status returns the current lifecycle status of the downstream module.

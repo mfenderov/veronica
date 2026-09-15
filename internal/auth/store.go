@@ -22,7 +22,8 @@ type FileAuthStore struct {
 }
 
 // ErrTokenNotFound is returned when no token is found for the requested server name.
-var ErrTokenNotFound = errors.New("token not found")
+// It is an alias of domain.ErrTokenNotFound so both the port and the adapter can be matched with errors.Is.
+var ErrTokenNotFound = domain.ErrTokenNotFound
 
 // NewFileStore creates and initializes a FileAuthStore from the specified file path.
 func NewFileStore(filePath string) (*FileAuthStore, error) {
@@ -87,13 +88,14 @@ func (s *FileAuthStore) saveLocked() error {
 }
 
 // GetToken retrieves the stored authentication token for the given server name.
+// It returns an error wrapping ErrTokenNotFound when no token is stored.
 func (s *FileAuthStore) GetToken(ctx context.Context, serverName string) (*domain.AuthToken, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	tok, ok := s.tokens[serverName]
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("token not found for %s: %w", serverName, ErrTokenNotFound)
 	}
 	return &tok, nil
 }

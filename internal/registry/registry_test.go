@@ -3,6 +3,7 @@ package registry_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,9 +13,10 @@ import (
 )
 
 type mockClient struct {
-	tools  []domain.Tool
-	called atomic.Int32
-	status domain.ModuleStatus
+	tools   []domain.Tool
+	called  atomic.Int32
+	status  domain.ModuleStatus
+	listErr error
 }
 
 func (m *mockClient) Start(ctx context.Context) error {
@@ -28,6 +30,9 @@ func (m *mockClient) Stop(ctx context.Context) error {
 }
 
 func (m *mockClient) ListTools(ctx context.Context) ([]domain.Tool, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
 	return m.tools, nil
 }
 
@@ -236,5 +241,125 @@ func TestRegistry_ListModulesDeterministicOrder(t *testing.T) {
 				t.Fatalf("iteration %d: expected module %s at index %d, got %s", iter, expectedOrder[i], i, mod.Name)
 			}
 		}
+	}
+}
+
+func TestRegistry_AliasCollisionFirstWins(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+
+	alpha := domain.NewModule(domain.ModuleConfig{
+		Name:      "alpha",
+		Transport: domain.TransportStdio,
+		Command:   "/bin/alpha",
+	})
+	alphaClient := &mockClient{
+		tools: []domain.Tool{
+			{Name: "search", OriginModule: "alpha"},
+		},
+		status: domain.StatusActive,
+	}
+
+	beta := domain.NewModule(domain.ModuleConfig{
+		Name:      "beta",
+		Transport: domain.TransportStdio,
+		Command:   "/bin/beta",
+	})
+	betaClient := &mockClient{
+		tools: []domain.Tool{
+			{Name: "search", OriginModule: "beta"},
+		},
+		status: domain.StatusActive,
+	}
+
+	if err := reg.Register(alpha, alphaClient); err != nil {
+		t.Fatalf("Register alpha failed: %v", err)
+	}
+	if err := reg.Register(beta, betaClient); err != nil {
+		t.Fatalf("Register beta failed: %v", err)
+	}
+
+	// Both namespaced tools must keep working regardless of the collision.
+	for _, name := range []string{"alpha_search", "beta_search"} {
+		if _, err := reg.CallTool(t.Context(), domain.ToolCall{ToolName: name}); err != nil {
+			t.Fatalf("CallTool %s failed: %v", name, err)
+		}
+	}
+
+	// The raw alias must resolve to exactly one module — the first in sort order.
+	res, err := reg.CallTool(t.Context(), domain.ToolCall{ToolName: "search"})
+	if err != nil {
+		t.Fatalf("CallTool with colliding alias failed: %v", err)
+	}
+	if len(res.Content) == 0 || res.Content[0].Text != "result from alpha" {
+		t.Fatalf("expected colliding alias to route to alpha, got: %+v", res)
+	}
+
+	// The alias must appear exactly once in the aggregated catalog.
+	count := 0
+	for _, tool := range reg.ListTools() {
+		if tool.Name == "search" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected alias search exactly once in catalog, got %d", count)
+	}
+}
+
+func TestRegistryProbeModuleSucceedsForResponsiveModule(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	mod := domain.NewModule(domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   "/bin/mark42",
+	})
+	client := &mockClient{tools: []domain.Tool{{Name: "search_nodes"}}}
+	if err := reg.Register(mod, client); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	if err := reg.ProbeModule(t.Context(), "mark42"); err != nil {
+		t.Fatalf("expected responsive module to probe cleanly, got: %v", err)
+	}
+}
+
+func TestRegistryProbeModuleReportsUnresponsiveModule(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	mod := domain.NewModule(domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   "/bin/mark42",
+	})
+	client := &mockClient{tools: []domain.Tool{{Name: "search_nodes"}}}
+	if err := reg.Register(mod, client); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	client.listErr = errors.New("write |1: broken pipe")
+
+	err := reg.ProbeModule(t.Context(), "mark42")
+	if err == nil {
+		t.Fatal("expected probe to fail for unresponsive module")
+	}
+	if !strings.Contains(err.Error(), "mark42") {
+		t.Fatalf("expected probe error to name the module, got: %v", err)
+	}
+	if !errors.Is(err, client.listErr) {
+		t.Fatalf("expected probe error to wrap the transport cause, got: %v", err)
+	}
+}
+
+func TestRegistryProbeModuleUnknownModule(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+
+	if err := reg.ProbeModule(t.Context(), "ghost"); !errors.Is(err, domain.ErrModuleNotFound) {
+		t.Fatalf("expected ErrModuleNotFound for unknown module, got: %v", err)
 	}
 }

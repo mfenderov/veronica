@@ -2,8 +2,12 @@
 package domain
 
 import (
+	"errors"
 	"time"
 )
+
+// ErrTokenNotFound is returned by AuthStore implementations when no token is stored for a server.
+var ErrTokenNotFound = errors.New("token not found")
 
 // AuthToken represents an OAuth authentication token for an MCP server.
 type AuthToken struct {

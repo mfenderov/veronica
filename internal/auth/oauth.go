@@ -73,6 +73,7 @@ type tokenResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int64  `json:"expires_in"`
 	TokenType    string `json:"token_type"`
+	Scope        string `json:"scope,omitempty"`
 }
 
 // EnsureValidToken returns a valid authentication token, refreshing it automatically if close to expiry.
@@ -113,7 +114,7 @@ func (m *OAuthManager) RefreshToken(ctx context.Context, cfg domain.OAuthClientC
 		return nil, fmt.Errorf("failed to refresh token for %s: %w", cfg.ServerName, err)
 	}
 
-	newToken := buildAuthToken(cfg.ServerName, tokenResp, refreshToken)
+	newToken := buildAuthToken(cfg.ServerName, tokenResp, refreshToken, cfg.Scopes)
 	if err := m.store.SaveToken(ctx, newToken); err != nil {
 		return nil, fmt.Errorf("failed to persist refreshed token: %w", err)
 	}
@@ -137,7 +138,7 @@ func (m *OAuthManager) ExchangeCode(ctx context.Context, cfg domain.OAuthClientC
 		return nil, fmt.Errorf("token exchange failed for %s: %w", cfg.ServerName, err)
 	}
 
-	newToken := buildAuthToken(cfg.ServerName, tokenResp, tokenResp.RefreshToken)
+	newToken := buildAuthToken(cfg.ServerName, tokenResp, tokenResp.RefreshToken, cfg.Scopes)
 	if err := m.store.SaveToken(ctx, newToken); err != nil {
 		return nil, fmt.Errorf("failed to persist token: %w", err)
 	}
@@ -183,7 +184,7 @@ func (m *OAuthManager) requestToken(ctx context.Context, tokenURL string, data u
 	return &tokenResp, nil
 }
 
-func buildAuthToken(serverName string, resp *tokenResponse, fallbackRefresh string) domain.AuthToken {
+func buildAuthToken(serverName string, resp *tokenResponse, fallbackRefresh string, cfgScopes []string) domain.AuthToken {
 	token := domain.AuthToken{
 		ServerName:   serverName,
 		AccessToken:  resp.AccessToken,
@@ -195,6 +196,11 @@ func buildAuthToken(serverName string, resp *tokenResponse, fallbackRefresh stri
 	}
 	if resp.ExpiresIn > 0 {
 		token.ExpiresAt = time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
+	}
+	if scopes := strings.Fields(resp.Scope); len(scopes) > 0 {
+		token.Scopes = scopes
+	} else {
+		token.Scopes = cfgScopes
 	}
 	return token
 }
