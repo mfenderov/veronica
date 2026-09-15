@@ -4,6 +4,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -158,18 +159,26 @@ func (r *Registry) rebuildCatalogLocked() {
 			r.toolRoutes[exposedName] = route
 			r.aggregated = append(r.aggregated, exposedTool)
 
-			// If exposedName differs from raw tool name (e.g. mark42_search_nodes vs search_nodes),
-			// also register the raw tool name as an alias so existing sessions and un-prefixed
-			// calls succeed seamlessly.
+			// The raw name is a convenience alias: the first module in sort order
+			// wins so the outcome is deterministic across rebuilds. Colliding
+			// modules stay reachable via their namespaced names.
 			if exposedName != t.Name {
-				r.toolRoutes[t.Name] = route
-				aliasTool := domain.Tool{
-					Name:         t.Name,
-					Description:  exposedDesc,
-					InputSchema:  t.InputSchema,
-					OriginModule: modName,
+				if existing, collides := r.toolRoutes[t.Name]; collides {
+					slog.Warn("alias collision: tool claimed by first module, use namespaced name for the other",
+						"tool", t.Name,
+						"winner", existing.moduleName,
+						"loser", modName,
+					)
+				} else {
+					r.toolRoutes[t.Name] = route
+					aliasTool := domain.Tool{
+						Name:         t.Name,
+						Description:  exposedDesc,
+						InputSchema:  t.InputSchema,
+						OriginModule: modName,
+					}
+					r.aggregated = append(r.aggregated, aliasTool)
 				}
-				r.aggregated = append(r.aggregated, aliasTool)
 			}
 		}
 	}
@@ -197,6 +206,24 @@ func (r *Registry) GetModule(name string) (*domain.Module, bool) {
 
 	m, ok := r.modules[name]
 	return m, ok
+}
+
+// ProbeModule actively checks that a module's downstream client still responds.
+// It lists the client's tools over the live transport, so a dead or hung process
+// surfaces as an error instead of quietly failing later tool calls.
+func (r *Registry) ProbeModule(ctx context.Context, name string) error {
+	r.mu.RLock()
+	client, ok := r.clients[name]
+	r.mu.RUnlock()
+
+	if !ok || client == nil {
+		return domain.ErrModuleNotFound
+	}
+
+	if _, err := client.ListTools(ctx); err != nil {
+		return fmt.Errorf("module %s is unresponsive: %w", name, err)
+	}
+	return nil
 }
 
 // ListTools returns a snapshot of all aggregated tools currently available across active modules.

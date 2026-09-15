@@ -20,13 +20,14 @@ type customToolEntry struct {
 
 // UpstreamServer is the MCP gateway server exposing aggregated and custom tools over HTTP, SSE, and Stdio.
 type UpstreamServer struct {
-	mu          sync.RWMutex
-	mcpServer   *server.MCPServer
-	sseServer   *server.SSEServer
-	streamable  *server.StreamableHTTPServer
-	registry    *registry.Registry
-	customTools map[string]customToolEntry
-	httpServer  *http.Server
+	mu              sync.RWMutex
+	mcpServer       *server.MCPServer
+	sseServer       *server.SSEServer
+	streamable      *server.StreamableHTTPServer
+	registry        *registry.Registry
+	customTools     map[string]customToolEntry
+	downstreamTools map[string]struct{}
+	httpServer      *http.Server
 }
 
 // NewUpstreamServer creates an UpstreamServer connected to the module registry.
@@ -36,11 +37,12 @@ func NewUpstreamServer(reg *registry.Registry) *UpstreamServer {
 	streamable := server.NewStreamableHTTPServer(s)
 
 	u := &UpstreamServer{
-		mcpServer:   s,
-		sseServer:   sse,
-		streamable:  streamable,
-		registry:    reg,
-		customTools: make(map[string]customToolEntry),
+		mcpServer:       s,
+		sseServer:       sse,
+		streamable:      streamable,
+		registry:        reg,
+		customTools:     make(map[string]customToolEntry),
+		downstreamTools: make(map[string]struct{}),
 	}
 
 	reg.OnToolsChanged(func() {
@@ -118,8 +120,10 @@ func (u *UpstreamServer) registerCustomToolsLocked() {
 }
 
 func (u *UpstreamServer) registerDownstreamToolsLocked() {
+	next := make(map[string]struct{}, len(u.downstreamTools))
 	for _, dt := range u.registry.ListTools() {
 		downstreamToolName := dt.Name
+		next[downstreamToolName] = struct{}{}
 		tool := createMCPTool(downstreamToolName, dt.Description, dt.InputSchema)
 		u.mcpServer.AddTool(
 			tool,
@@ -136,6 +140,12 @@ func (u *UpstreamServer) registerDownstreamToolsLocked() {
 			},
 		)
 	}
+	for stale := range u.downstreamTools {
+		if _, ok := next[stale]; !ok {
+			u.mcpServer.DeleteTools(stale)
+		}
+	}
+	u.downstreamTools = next
 }
 
 func createMCPTool(name, description string, schema any) mcp.Tool {
@@ -156,11 +166,33 @@ func createMCPTool(name, description string, schema any) mcp.Tool {
 func toMCPResult(res domain.ToolResult) *mcp.CallToolResult {
 	contents := make([]mcp.Content, 0, len(res.Content))
 	for _, c := range res.Content {
-		contents = append(contents, mcp.NewTextContent(c.Text))
+		contents = append(contents, toMCPContent(c))
 	}
 	return &mcp.CallToolResult{
 		Content: contents,
 		IsError: res.IsError,
+	}
+}
+
+// toMCPContent renders a domain content item back into an MCP block. Items that
+// carry their verbatim wire form are restored losslessly; the rest are rebuilt
+// from the flattened view so text-only producers keep working.
+func toMCPContent(c domain.ToolContent) mcp.Content {
+	if len(c.Raw) > 0 {
+		if content, err := mcp.UnmarshalContent(c.Raw); err == nil {
+			return content
+		}
+	}
+
+	switch c.Type {
+	case domain.ContentTypeImage:
+		return mcp.NewImageContent(c.Data, c.MIMEType)
+	case domain.ContentTypeAudio:
+		return mcp.NewAudioContent(c.Data, c.MIMEType)
+	case domain.ContentTypeText, "":
+		return mcp.NewTextContent(c.Text)
+	default:
+		return mcp.NewTextContent("unsupported content block of type " + c.Type)
 	}
 }
 

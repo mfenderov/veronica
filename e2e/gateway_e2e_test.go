@@ -137,7 +137,9 @@ func registerGatewayMetaTools(u *transport.UpstreamServer, h *meta.Handler) {
 		return transport.ResultJSON(res), nil
 	})
 	u.RegisterCustomTool(domain.Tool{Name: "veronica_recall_module"}, func(ctx context.Context, args any) (domain.ToolResult, error) {
-		var p struct{ Name string `json:"name"` }
+		var p struct {
+			Name string `json:"name"`
+		}
 		b, _ := json.Marshal(args)
 		_ = json.Unmarshal(b, &p)
 		res, err := h.RecallModule(ctx, p.Name)
@@ -160,7 +162,9 @@ func registerGatewayMetaTools(u *transport.UpstreamServer, h *meta.Handler) {
 		return transport.ResultJSON(res), nil
 	})
 	u.RegisterCustomTool(domain.Tool{Name: "veronica_reauth_module"}, func(ctx context.Context, args any) (domain.ToolResult, error) {
-		var p struct{ Name string `json:"name"` }
+		var p struct {
+			Name string `json:"name"`
+		}
 		b, _ := json.Marshal(args)
 		_ = json.Unmarshal(b, &p)
 		res, err := h.ReauthModule(ctx, p.Name)

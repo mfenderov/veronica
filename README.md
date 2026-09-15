@@ -167,9 +167,30 @@ veronica tui --endpoint http://localhost:9090/sse
 # List configured modules and target endpoints
 veronica list
 
+# Diagnose config, credentials, health, and missing local binaries
+veronica doctor
+
 # Show Veronica version
 veronica version
 ```
+
+### Protocols: Streamable (preferred) vs SSE (legacy) vs stdio
+
+- **Streamable HTTP (preferred):** modern MCP transport served by the daemon at `/mcp` (also answers `POST /sse` and `POST /`). Point new clients here.
+- **SSE legacy:** `GET /sse` event stream + `POST /message` for older clients (OpenCode remote, existing configs). Kept for backward compatibility.
+- **stdio:** `veronica serve --stdio` runs as a single-client subprocess over stdin/stdout (no TCP port). Use for Claude Code / CLI `mcp add` local modes.
+
+### First-run prerequisites
+
+On first `serve`, Veronica warns (to stderr, never fails the daemon) when an enabled
+`stdio` module's `command` is not found in `$PATH`, with an install hint:
+
+```text
+Missing prerequisites:
+- markitdown: command "uvx" not found. Install with: brew install uv (then uvx markitdown-mcp).
+```
+
+Run `veronica doctor` anytime to re-check config, credentials, health, and binaries.
 
 ## End-to-End Walkthrough: OpenCode + Mark42 via Veronica
 
@@ -225,7 +246,9 @@ Open your OpenCode chat and ask:
 
 ## Client Configurations
 
-Veronica supports both **HTTP/SSE** (daemon mode via LaunchAgent or `veronica serve`) and **Stdio** (direct subprocess mode via `veronica serve --stdio`).
+Veronica supports **Streamable HTTP** (preferred, `/mcp`), **SSE legacy** (`GET /sse` + `POST /message`),
+and **stdio** (`veronica serve --stdio`, direct subprocess, no TCP). Daemon mode (`veronica serve`) exposes
+both HTTP transports on the same port; stdio mode serves one client over stdin/stdout.
 
 ### 1. VS Code
 

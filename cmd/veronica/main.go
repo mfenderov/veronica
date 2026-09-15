@@ -68,6 +68,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newListCmd())
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newTUICmd())
+	rootCmd.AddCommand(newDoctorCmd())
 	return rootCmd
 }
 
@@ -149,7 +150,10 @@ func runServer(app *appContext, stdioMode bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	warnMissingPrerequisites(app.cfg.Modules, exec.LookPath, os.Stderr)
+
 	mountAllModules(ctx, app.cfg, app.factory, app.reg, stdioMode)
+	startSupervisor(ctx, app.metaHandler, meta.DefaultSupervisorConfig())
 
 	upstream := transport.NewUpstreamServer(app.reg)
 	registerMetaTools(upstream, app.metaHandler, app.cfg, app.cfgPath)
@@ -161,6 +165,17 @@ func runServer(app *appContext, stdioMode bool) error {
 	setupGracefulShutdown(upstream, cancel)
 	fmt.Printf("[veronica] 🛰️ Veronica gateway listening on %s/sse\n", app.cfg.Server.Addr)
 	return upstream.Start(app.cfg.Server.Addr)
+}
+
+// startSupervisor runs the module supervision loop in the background for the lifetime
+// of ctx, restarting modules that stop responding. It returns the supervisor so callers
+// can inspect its configuration.
+func startSupervisor(ctx context.Context, handler *meta.Handler, cfg meta.SupervisorConfig) *meta.Supervisor {
+	sup := meta.NewSupervisor(handler, cfg)
+	go func() {
+		_ = sup.Run(ctx)
+	}()
+	return sup
 }
 
 func setupGracefulShutdown(upstream *transport.UpstreamServer, cancel context.CancelFunc) {
@@ -562,6 +577,149 @@ func printModulesList(w io.Writer, cfg *config.Config) {
 		}
 		fmt.Fprintf(w, "%-15s %-10s %s\n", m.Name, m.Transport, target)
 	}
+}
+
+func newDoctorCmd() *cobra.Command {
+	var cfgPath string
+	var authPath string
+
+	cmd := &cobra.Command{
+		Use:   "doctor",
+		Short: "Diagnose configuration, credentials, and health of Veronica modules",
+		Long: "Check every configured module for configuration mistakes and credential problems\n" +
+			"using the on-disk config and token store. Exits with a non-zero status when any\n" +
+			"module reports an error.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			defaultCfg, defaultAuth := defaultPaths()
+			if cfgPath == "" {
+				cfgPath = defaultCfg
+			}
+			if authPath == "" {
+				authPath = defaultAuth
+			}
+			return runDoctor(cfgPath, authPath, cmd.OutOrStdout())
+		},
+	}
+
+	cmd.Flags().StringVarP(&cfgPath, "config", "c", "", "path to config file (default: ~/.config/veronica/config.yaml)")
+	cmd.Flags().StringVar(&authPath, "auth", "", "path to token store (default: ~/.config/veronica/auth.json)")
+	return cmd
+}
+
+// runDoctor diagnoses every configured module against the on-disk config and token
+// store, prints the findings, and returns an error when any finding is an error.
+func runDoctor(cfgPath, authPath string, out io.Writer) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+
+	store, err := auth.NewFileStore(authPath)
+	if err != nil {
+		return fmt.Errorf("failed to open token store: %w", err)
+	}
+
+	handler := meta.NewHandler(registry.New(), store, nil)
+	diags := handler.Diagnose(context.Background(), moduleConfigsInOrder(cfg), time.Now())
+	printDiagnostics(out, diags)
+	printPrerequisites(out, missingPrerequisites(cfg.Modules, exec.LookPath))
+
+	if n := countDiagnosticErrors(diags); n > 0 {
+		return fmt.Errorf("doctor found %d problem(s) that need attention", n)
+	}
+	return nil
+}
+
+// moduleConfigsInOrder returns the configured modules sorted by name so doctor output
+// is stable across runs.
+func moduleConfigsInOrder(cfg *config.Config) []domain.ModuleConfig {
+	names := make([]string, 0, len(cfg.Modules))
+	for name := range cfg.Modules {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	modules := make([]domain.ModuleConfig, 0, len(names))
+	for _, name := range names {
+		modules = append(modules, cfg.Modules[name])
+	}
+	return modules
+}
+
+func countDiagnosticErrors(diags []meta.Diagnostic) int {
+	n := 0
+	for _, d := range diags {
+		if d.Severity == meta.DiagnosticError {
+			n++
+		}
+	}
+	return n
+}
+
+func printDiagnostics(w io.Writer, diags []meta.Diagnostic) {
+	if len(diags) == 0 {
+		fmt.Fprintln(w, "No modules configured - nothing to check.")
+		return
+	}
+	for _, d := range diags {
+		fmt.Fprintf(w, "%-9s %-15s %-10s %s\n", d.Severity, d.Module, d.Check, d.Message)
+	}
+}
+
+type prerequisite struct {
+	Module  string
+	Command string
+}
+
+func missingPrerequisites(mods map[string]domain.ModuleConfig, lookPath func(string) (string, error)) []prerequisite {
+	names := make([]string, 0, len(mods))
+	for name := range mods {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var missing []prerequisite
+	for _, name := range names {
+		m := mods[name]
+		if m.Disabled || m.Transport != domain.TransportStdio || strings.TrimSpace(m.Command) == "" {
+			continue
+		}
+		if _, err := lookPath(m.Command); err != nil {
+			missing = append(missing, prerequisite{Module: m.Name, Command: m.Command})
+		}
+	}
+	return missing
+}
+
+func printPrerequisites(w io.Writer, missing []prerequisite) {
+	if len(missing) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "Missing prerequisites:")
+	for _, p := range missing {
+		hint := installHint(p.Command)
+		if hint != "" {
+			hint = " " + hint
+		}
+		fmt.Fprintf(w, "- %s: command %q not found.%s\n", p.Module, p.Command, hint)
+	}
+}
+
+func installHint(command string) string {
+	switch filepath.Base(command) {
+	case "uvx":
+		return "Install with: brew install uv (then uvx markitdown-mcp)."
+	case "npx":
+		return "Install with: brew install node (then npx -y mcp-remote)."
+	case "mark42-server":
+		return "Install with: brew install mark42-server (or check /opt/homebrew/bin/mark42-server)."
+	default:
+		return ""
+	}
+}
+
+func warnMissingPrerequisites(mods map[string]domain.ModuleConfig, lookPath func(string) (string, error), w io.Writer) {
+	printPrerequisites(w, missingPrerequisites(mods, lookPath))
 }
 
 func newVersionCmd() *cobra.Command {
