@@ -2,16 +2,21 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/mfenderov/veronica/internal/auth"
 	"github.com/mfenderov/veronica/internal/config"
 	"github.com/mfenderov/veronica/internal/domain"
+	"github.com/mfenderov/veronica/internal/meta"
 	"github.com/mfenderov/veronica/internal/registry"
 )
 
@@ -26,7 +31,7 @@ func TestNewRootCmd_Subcommands(t *testing.T) {
 		names[c.Name()] = true
 	}
 
-	for _, expected := range []string{"serve", "list", "version", "tui"} {
+	for _, expected := range []string{"serve", "list", "version", "tui", "doctor"} {
 		if !names[expected] {
 			t.Errorf("expected command %s to exist", expected)
 		}
@@ -186,6 +191,226 @@ func TestPrintModulesList(t *testing.T) {
 	output := buf.String()
 	if output == "" {
 		t.Fatal("expected non-empty output from printModulesList")
+	}
+}
+
+func TestDoctorCmd_Flags(t *testing.T) {
+	t.Parallel()
+
+	cmd := newDoctorCmd()
+	cfgFlag := cmd.Flag("config")
+	if cfgFlag == nil {
+		t.Fatal("expected config flag on doctor command")
+	}
+	if !strings.Contains(cfgFlag.Usage, "config.yaml") {
+		t.Fatalf("expected config flag usage to mention default, got: %s", cfgFlag.Usage)
+	}
+}
+
+func TestDoctorCmd_ExecutionWithHealthyConfig(t *testing.T) {
+	t.Parallel()
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.DefaultConfig()
+	cfg.AddModule(domain.ModuleConfig{
+		Name:      "echo-mod",
+		Transport: domain.TransportStdio,
+		Command:   "/bin/echo",
+	})
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	rootCmd := newRootCmd()
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetArgs([]string{"doctor", "-c", cfgPath})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("doctor failed for a healthy config: %v (output: %s)", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "echo-mod") {
+		t.Fatalf("expected module name in doctor output, got: %s", buf.String())
+	}
+}
+
+func TestDoctorCmd_FailsWhenAModuleIsMisconfigured(t *testing.T) {
+	t.Parallel()
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.DefaultConfig()
+	cfg.AddModule(domain.ModuleConfig{
+		Name:      "broken-mod",
+		Transport: domain.TransportStdio,
+	})
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	rootCmd := newRootCmd()
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"doctor", "-c", cfgPath})
+
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("expected doctor to fail for a module with no command")
+	}
+	if !strings.Contains(buf.String(), "broken-mod") {
+		t.Fatalf("expected module name in doctor output, got: %s", buf.String())
+	}
+}
+
+func TestDoctorCmd_ReportsMissingOAuthToken(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg := config.DefaultConfig()
+	cfg.AddModule(domain.ModuleConfig{
+		Name:      "atlassian",
+		Transport: domain.TransportHTTP,
+		URL:       "https://mcp.atlassian.com/v1/sse",
+		OAuth:     &domain.OAuthClientConfig{ServerName: "atlassian"},
+	})
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	err := runDoctor(cfgPath, filepath.Join(dir, "auth.json"), buf)
+	if err == nil {
+		t.Fatal("expected doctor to fail when an OAuth module has no stored token")
+	}
+	if !strings.Contains(buf.String(), "atlassian") {
+		t.Fatalf("expected module name in doctor output, got: %s", buf.String())
+	}
+}
+
+func TestRunDoctorWithNoModulesReportsNoProblems(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := config.DefaultConfig().Save(cfgPath); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	if err := runDoctor(cfgPath, filepath.Join(dir, "auth.json"), buf); err != nil {
+		t.Fatalf("expected no problems for an empty config, got: %v (output: %s)", err, buf.String())
+	}
+}
+
+func TestPrintDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	diags := []meta.Diagnostic{
+		{Module: "atlassian", Check: "auth", Severity: meta.DiagnosticError, Message: "no token stored"},
+		{Module: "mark42", Check: "transport", Severity: meta.DiagnosticOK, Message: "stdio target is configured"},
+	}
+
+	buf := new(bytes.Buffer)
+	printDiagnostics(buf, diags)
+
+	output := buf.String()
+	for _, want := range []string{"atlassian", "auth", "no token stored", "mark42", "transport"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected %q in diagnostics output, got: %s", want, output)
+		}
+	}
+}
+
+// supervisorFakeClient is a controllable downstream client used to exercise the
+// background supervisor wiring without spawning real processes.
+type supervisorFakeClient struct {
+	mu        sync.Mutex
+	unhealthy bool
+	tools     []domain.Tool
+}
+
+func (c *supervisorFakeClient) Start(context.Context) error { return nil }
+func (c *supervisorFakeClient) Stop(context.Context) error  { return nil }
+func (c *supervisorFakeClient) Status() domain.ModuleStatus { return domain.StatusActive }
+
+func (c *supervisorFakeClient) ListTools(context.Context) ([]domain.Tool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.unhealthy {
+		return nil, errors.New("write |1: broken pipe")
+	}
+	return c.tools, nil
+}
+
+func (c *supervisorFakeClient) CallTool(context.Context, domain.ToolCall) (domain.ToolResult, error) {
+	return domain.ToolResult{}, nil
+}
+
+func (c *supervisorFakeClient) markUnhealthy() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.unhealthy = true
+}
+
+// supervisorFakeFactory hands out fresh clients and signals on restarted every time
+// the supervisor asks for one, which is how a background restart is observed.
+type supervisorFakeFactory struct {
+	restarted chan struct{}
+}
+
+func newSupervisorFakeFactory() *supervisorFakeFactory {
+	return &supervisorFakeFactory{restarted: make(chan struct{}, 1)}
+}
+
+func (f *supervisorFakeFactory) CreateClient(_ context.Context, cfg domain.ModuleConfig) (domain.DownstreamClient, error) {
+	select {
+	case f.restarted <- struct{}{}:
+	default:
+	}
+
+	return &supervisorFakeClient{tools: []domain.Tool{{Name: cfg.Name + "_query"}}}, nil
+}
+
+func TestStartSupervisorRestartsUnresponsiveModulesInBackground(t *testing.T) {
+	t.Parallel()
+
+	store, err := auth.NewFileStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatalf("creating auth store: %v", err)
+	}
+
+	reg := registry.New()
+	factory := newSupervisorFakeFactory()
+	handler := meta.NewHandler(reg, store, factory)
+
+	modCfg := domain.ModuleConfig{
+		Name:        "flaky",
+		Transport:   domain.TransportStdio,
+		Command:     "/bin/echo",
+		AutoRestart: true,
+	}
+	client := &supervisorFakeClient{tools: []domain.Tool{{Name: "flaky_query"}}}
+	if regErr := reg.Register(domain.NewModule(modCfg), client); regErr != nil {
+		t.Fatalf("mounting module: %v", regErr)
+	}
+	client.markUnhealthy()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	sup := startSupervisor(ctx, handler, meta.SupervisorConfig{
+		Interval:       10 * time.Millisecond,
+		ProbeTimeout:   time.Second,
+		RestartTimeout: time.Second,
+	})
+	if sup == nil {
+		t.Fatal("startSupervisor returned nil supervisor")
+	}
+
+	select {
+	case <-factory.restarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("background supervisor never restarted the unresponsive module")
 	}
 }
 
@@ -435,5 +660,101 @@ func TestCheckAndStartDaemon_Reachable(t *testing.T) {
 
 	if err := checkAndStartDaemon(srv.URL); err != nil {
 		t.Fatalf("expected no error when daemon is already reachable: %v", err)
+	}
+}
+
+// stubLookPath returns a lookPath implementation that resolves exactly the
+// commands present in resolvable and reports an error for everything else.
+func stubLookPath(resolvable ...string) func(string) (string, error) {
+	return func(command string) (string, error) {
+		for _, candidate := range resolvable {
+			if candidate == command {
+				return "/fake/bin/" + command, nil
+			}
+		}
+		return "", errors.New("executable file not found in $PATH")
+	}
+}
+
+func TestMissingPrerequisitesReportsUnresolvableCommands(t *testing.T) {
+	t.Parallel()
+
+	mods := map[string]domain.ModuleConfig{
+		"present": {Name: "present", Transport: domain.TransportStdio, Command: "uvx"},
+		"absent":  {Name: "absent", Transport: domain.TransportStdio, Command: "definitely-not-installed"},
+	}
+
+	missing := missingPrerequisites(mods, stubLookPath("uvx"))
+
+	if len(missing) != 1 {
+		t.Fatalf("got %d missing prerequisites, want 1: %+v", len(missing), missing)
+	}
+	if missing[0].Module != "absent" || missing[0].Command != "definitely-not-installed" {
+		t.Fatalf("unexpected prerequisite: %+v", missing[0])
+	}
+}
+
+func TestMissingPrerequisitesSkipsModulesNeedingNoLocalCommand(t *testing.T) {
+	t.Parallel()
+
+	mods := map[string]domain.ModuleConfig{
+		"paused":  {Name: "paused", Transport: domain.TransportStdio, Command: "missing-paused", Disabled: true},
+		"remote":  {Name: "remote", Transport: domain.TransportHTTP, URL: "https://example.com/mcp"},
+		"invalid": {Name: "invalid", Transport: domain.TransportStdio},
+	}
+
+	if missing := missingPrerequisites(mods, stubLookPath()); len(missing) != 0 {
+		t.Fatalf("got %d missing prerequisites, want 0: %+v", len(missing), missing)
+	}
+}
+
+func TestMissingPrerequisitesSortsByModuleName(t *testing.T) {
+	t.Parallel()
+
+	mods := map[string]domain.ModuleConfig{
+		"zeta":  {Name: "zeta", Transport: domain.TransportStdio, Command: "missing-zeta"},
+		"alpha": {Name: "alpha", Transport: domain.TransportStdio, Command: "missing-alpha"},
+	}
+
+	missing := missingPrerequisites(mods, stubLookPath())
+
+	if len(missing) != 2 {
+		t.Fatalf("got %d missing prerequisites, want 2: %+v", len(missing), missing)
+	}
+	if missing[0].Module != "alpha" || missing[1].Module != "zeta" {
+		t.Fatalf("prerequisites are not name-sorted: %+v", missing)
+	}
+}
+
+func TestPrintPrerequisites(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	printPrerequisites(&out, []prerequisite{{Module: "markitdown", Command: "uvx"}})
+
+	printed := out.String()
+	for _, want := range []string{"markitdown", "uvx", installHint("uvx")} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("printed output %q does not mention %q", printed, want)
+		}
+	}
+
+	out.Reset()
+	printPrerequisites(&out, nil)
+	if out.Len() != 0 {
+		t.Fatalf("expected no output when nothing is missing, got: %q", out.String())
+	}
+}
+
+func TestInstallHint(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"uvx", "npx", "mark42-server"} {
+		if installHint(command) == "" {
+			t.Fatalf("expected an install hint for %q", command)
+		}
+	}
+	if installHint("some-random-binary") != "" {
+		t.Fatalf("expected no install hint for an unknown command, got: %q", installHint("some-random-binary"))
 	}
 }
