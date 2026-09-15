@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.5.0 - 2026-09-15
+#### Features
+- add supervision loop, doctor diagnostics, prerequisite checks and content passthrough - (3408667) - Mark Fenderov
+
+- - -
+
 ## v0.4.4 - 2026-09-11
 #### Documentation
 - remove Tony Stark quote from README - (84e2eec) - Mark Fenderov
