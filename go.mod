@@ -3,7 +3,7 @@ module github.com/mfenderov/veronica
 go 1.26.1
 
 require (
-	github.com/charmbracelet/bubbles v0.21.0
+	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/mark3labs/mcp-go v1.0.0
