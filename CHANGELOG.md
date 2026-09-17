@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.6.0 - 2026-09-17
+#### Features
+- (**tui**) add live ops auto-refresh with event stream and health - (de86048) - Mark Fenderov
+#### Bug Fixes
+- (**atlassian**) point remote endpoint to v1/mcp to resolve 502 Bad Gateway - (a8ead83) - Mark Fenderov
+#### Documentation
+- add TUI live ops view design spec - (8c40b1e) - Mark Fenderov
+
+- - -
+
 ## v0.5.0 - 2026-09-15
 #### Features
 - add supervision loop, doctor diagnostics, prerequisite checks and content passthrough - (3408667) - Mark Fenderov
