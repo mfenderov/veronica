@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.6.1 - 2026-09-17
+#### Bug Fixes
+- (**atlassian**) restore v2/mcp endpoint following resolution of upstream Atlassian 502 outage - (cf5f8c9) - Mark Fenderov
+
+- - -
+
 ## v0.6.0 - 2026-09-17
 #### Features
 - (**tui**) add live ops auto-refresh with event stream and health - (de86048) - Mark Fenderov
