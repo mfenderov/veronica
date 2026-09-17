@@ -133,13 +133,18 @@ func (a *DownstreamAdapter) resolveToken(ctx context.Context) *domain.AuthToken 
 }
 
 func (a *DownstreamAdapter) createHTTPClient() (*client.Client, error) {
+	httpClient := &http.Client{
+		Transport: NewRetryRoundTripper(http.DefaultTransport, DefaultRetryConfig()),
+		Timeout:   30 * time.Second,
+	}
+
 	if a.config.Transport == domain.TransportHTTP {
 		headerFunc := func(callCtx context.Context) map[string]string {
 			return a.getHeaders(callCtx)
 		}
 		opts := []transport.StreamableHTTPCOption{
 			transport.WithHTTPHeaderFunc(headerFunc),
-			transport.WithHTTPBasicClient(&http.Client{Timeout: 30 * time.Second}),
+			transport.WithHTTPBasicClient(httpClient),
 		}
 		return client.NewStreamableHttpClient(a.config.URL, opts...)
 	}
@@ -147,7 +152,7 @@ func (a *DownstreamAdapter) createHTTPClient() (*client.Client, error) {
 	// Legacy SSE
 	return client.NewSSEMCPClient(a.config.URL,
 		client.WithHeaderFunc(a.getHeaders),
-		client.WithHTTPClient(&http.Client{Timeout: 30 * time.Second}),
+		client.WithHTTPClient(httpClient),
 	)
 }
 
