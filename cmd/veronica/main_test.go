@@ -442,8 +442,8 @@ func TestPopulateDefaultModules_OAuthEndpointsValid(t *testing.T) {
 	if !ok {
 		t.Fatal("expected atlassian module in default config")
 	}
-	if atlassian.URL != "https://mcp.atlassian.com/v1/mcp" {
-		t.Fatalf("expected atlassian URL https://mcp.atlassian.com/v1/mcp, got %s", atlassian.URL)
+	if atlassian.URL != "https://mcp.atlassian.com/v2/mcp" {
+		t.Fatalf("expected atlassian URL https://mcp.atlassian.com/v2/mcp, got %s", atlassian.URL)
 	}
 	if atlassian.OAuth == nil {
 		t.Fatal("expected atlassian OAuth config")
