@@ -18,6 +18,7 @@ import (
 	"github.com/mfenderov/veronica/internal/domain"
 	"github.com/mfenderov/veronica/internal/meta"
 	"github.com/mfenderov/veronica/internal/registry"
+	"github.com/mfenderov/veronica/internal/transport"
 )
 
 func TestNewRootCmd_Subcommands(t *testing.T) {
@@ -635,6 +636,39 @@ func TestResolveBinaryPath(t *testing.T) {
 	path := resolveBinaryPath()
 	if path == "" {
 		t.Fatal("expected non-empty binary path")
+	}
+}
+
+func TestRegisterTracesTool(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	store, _ := auth.NewFileStore(t.TempDir() + "/auth.json")
+	h := meta.NewHandler(reg, store, nil)
+	upstream := transport.NewUpstreamServer(reg)
+
+	registerTracesTool(upstream, h)
+
+	reg.RecordTrace(domain.ToolTrace{
+		ID:         "test-trace",
+		ModuleName: "mod",
+		ToolName:   "echo",
+		Duration:   time.Millisecond,
+	})
+
+	traces, err := h.RecentTraces(t.Context(), 10)
+	if err != nil {
+		t.Fatalf("RecentTraces failed: %v", err)
+	}
+	if len(traces) != 1 || traces[0].ID != "test-trace" {
+		t.Fatalf("expected trace to be returned, got %+v", traces)
+	}
+
+	if parseTracesLimit(nil) != 20 {
+		t.Errorf("expected default limit 20, got %d", parseTracesLimit(nil))
+	}
+	if parseTracesLimit(map[string]any{"limit": 5}) != 5 {
+		t.Errorf("expected limit 5, got %d", parseTracesLimit(map[string]any{"limit": 5}))
 	}
 }
 

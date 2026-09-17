@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mfenderov/veronica/internal/domain"
 )
@@ -25,6 +26,7 @@ type Registry struct {
 	toolRoutes map[string]toolRoute
 	aggregated []domain.Tool
 	listeners  []func()
+	traces     *RingBufferTraceRecorder
 }
 
 // New creates an initialized empty Registry.
@@ -35,6 +37,7 @@ func New() *Registry {
 		toolRoutes: make(map[string]toolRoute),
 		aggregated: make([]domain.Tool, 0),
 		listeners:  make([]func(), 0),
+		traces:     NewRingBufferTraceRecorder(100),
 	}
 }
 
@@ -236,7 +239,22 @@ func (r *Registry) ListTools() []domain.Tool {
 	return out
 }
 
-// CallTool routes a tool call to the owning downstream module client.
+// RecentTraces returns the most recent tool execution traces up to limit.
+func (r *Registry) RecentTraces(limit int) []domain.ToolTrace {
+	if r.traces == nil {
+		return nil
+	}
+	return r.traces.Recent(limit)
+}
+
+// RecordTrace records a tool execution trace.
+func (r *Registry) RecordTrace(trace domain.ToolTrace) {
+	if r.traces != nil {
+		r.traces.Record(trace)
+	}
+}
+
+// CallTool routes a tool call to the owning downstream module client and records execution metrics.
 func (r *Registry) CallTool(ctx context.Context, call domain.ToolCall) (domain.ToolResult, error) {
 	r.mu.RLock()
 	route, ok := r.toolRoutes[call.ToolName]
@@ -256,7 +274,30 @@ func (r *Registry) CallTool(ctx context.Context, call domain.ToolCall) (domain.T
 		Arguments: call.Arguments,
 	}
 
-	return client.CallTool(ctx, downstreamCall)
+	start := time.Now()
+	res, err := client.CallTool(ctx, downstreamCall)
+	duration := time.Since(start)
+
+	r.RecordTrace(domain.ToolTrace{
+		Timestamp:  start,
+		ModuleName: route.moduleName,
+		ToolName:   route.downstreamName,
+		Duration:   duration,
+		IsError:    res.IsError || err != nil,
+		ErrorMsg:   extractErrorMsg(res, err),
+	})
+
+	return res, err
+}
+
+func extractErrorMsg(res domain.ToolResult, err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	if res.IsError && len(res.Content) > 0 {
+		return res.Content[0].Text
+	}
+	return ""
 }
 
 // FormatExposedToolName ensures a tool name is namespaced with its module prefix.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -106,10 +107,28 @@ func (u *UpstreamServer) registerCustomToolsLocked() {
 		}
 		tool := createMCPTool(entry.tool.Name, desc, entry.tool.InputSchema)
 		h := entry.handler
+		customToolName := entry.tool.Name
 		u.mcpServer.AddTool(
 			tool,
 			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				start := time.Now()
 				res, err := h(ctx, req.Params.Arguments)
+				duration := time.Since(start)
+				isErr := err != nil || res.IsError
+				var errMsg string
+				if err != nil {
+					errMsg = err.Error()
+				} else if res.IsError && len(res.Content) > 0 {
+					errMsg = res.Content[0].Text
+				}
+				u.registry.RecordTrace(domain.ToolTrace{
+					Timestamp:  start,
+					ModuleName: "veronica",
+					ToolName:   customToolName,
+					Duration:   duration,
+					IsError:    isErr,
+					ErrorMsg:   errMsg,
+				})
 				if err != nil {
 					return mcp.NewToolResultError(err.Error()), nil
 				}

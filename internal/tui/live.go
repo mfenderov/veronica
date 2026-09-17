@@ -159,3 +159,42 @@ func renderEventsPane(events []uiEvent) string {
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
+
+// renderTracesPane renders recent tool execution traces.
+func renderTracesPane(traces []domain.ToolTrace) string {
+	var b strings.Builder
+	b.WriteString(paneTitle.Render("TOOL TRACES") + "\n")
+	if len(traces) == 0 {
+		b.WriteString(textSubtle.Render("No tool calls recorded yet"))
+		return b.String()
+	}
+	visible := traces
+	if len(visible) > maxVisibleEvents {
+		visible = visible[:maxVisibleEvents]
+	}
+	for _, tr := range visible {
+		statusBadge := textSuccess.Render("OK")
+		if tr.IsError {
+			statusBadge = textDanger.Render("ERR")
+		}
+		durStr := formatTraceDuration(tr.Duration)
+		fmt.Fprintf(&b, "%s  [%s]  %s  (%s)  %s\n",
+			tr.Timestamp.Format("15:04:05"),
+			tr.ModuleName,
+			tr.ToolName,
+			durStr,
+			statusBadge,
+		)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func formatTraceDuration(d time.Duration) string {
+	if d < time.Millisecond {
+		return fmt.Sprintf("%dµs", d.Microseconds())
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
+}
