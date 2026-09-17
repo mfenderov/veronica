@@ -75,6 +75,7 @@ type RestartResult struct {
 type PodService interface {
 	Status(ctx context.Context) (GatewayStatus, error)
 	ListModules(ctx context.Context) ([]ModuleSummary, error)
+	RecentTraces(ctx context.Context, limit int) ([]ToolTrace, error)
 	DeployModule(ctx context.Context, p DeployParams) (DeployResult, error)
 	RecallModule(ctx context.Context, name string) (RecallResult, error)
 	ToggleModule(ctx context.Context, name string, enable bool) (ToggleResult, error)

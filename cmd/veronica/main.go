@@ -242,6 +242,47 @@ func registerMetaTools(upstream *transport.UpstreamServer, h *meta.Handler, cfg 
 	registerToggleModuleTool(upstream, h, cfg, cfgPath)
 	registerReauthModuleTool(upstream, h)
 	registerRestartDaemonTool(upstream, h)
+	registerTracesTool(upstream, h)
+}
+
+func registerTracesTool(upstream *transport.UpstreamServer, h *meta.Handler) {
+	upstream.RegisterCustomTool(
+		domain.Tool{
+			Name:        "veronica_traces",
+			Description: "Get recent tool execution traces with latency and status metrics",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of traces to return (default 20)",
+					},
+				},
+			},
+		},
+		func(ctx context.Context, args any) (domain.ToolResult, error) {
+			limit := parseTracesLimit(args)
+			traces, err := h.RecentTraces(ctx, limit)
+			if err != nil {
+				return transport.ResultError(err), nil
+			}
+			return transport.ResultJSON(traces), nil
+		},
+	)
+}
+
+func parseTracesLimit(args any) int {
+	var p struct {
+		Limit int `json:"limit"`
+	}
+	if args != nil {
+		b, _ := json.Marshal(args)
+		_ = json.Unmarshal(b, &p)
+	}
+	if p.Limit <= 0 {
+		return 20
+	}
+	return p.Limit
 }
 
 func registerRestartDaemonTool(upstream *transport.UpstreamServer, h *meta.Handler) {

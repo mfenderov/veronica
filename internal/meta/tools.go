@@ -236,6 +236,11 @@ func (h *Handler) restartModuleClient(ctx context.Context, mod *domain.Module) e
 	return h.registry.Register(mod, client)
 }
 
+// RecentTraces returns recent tool execution traces from the registry up to limit.
+func (h *Handler) RecentTraces(ctx context.Context, limit int) ([]domain.ToolTrace, error) {
+	return h.registry.RecentTraces(limit), nil
+}
+
 // ListModules returns summaries of all registered modules and their exposed tools.
 func (h *Handler) ListModules(ctx context.Context) ([]ModuleSummary, error) {
 	modules := h.registry.ListModules()

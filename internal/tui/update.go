@@ -22,6 +22,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleStatusMsg(msg)
 	case modulesMsg:
 		return m.handleModulesMsg(msg)
+	case tracesMsg:
+		return m.handleTracesMsg(msg)
 	case actionResultMsg:
 		return m.handleActionResult(msg)
 	case tea.KeyMsg:
@@ -41,7 +43,7 @@ func (m Model) handleTickMsg() (tea.Model, tea.Cmd) {
 	if m.mode == modeAdd || m.mode == modeEdit || !m.autoRefresh {
 		return m, tickCmd()
 	}
-	return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd(), tickCmd())
+	return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd(), m.loadTracesCmd(), tickCmd())
 }
 
 func (m Model) handleStatusMsg(msg statusMsg) (tea.Model, tea.Cmd) {
@@ -154,6 +156,13 @@ func (m Model) findCursorForName(name string) int {
 	return m.cursor
 }
 
+func (m Model) handleTracesMsg(msg tracesMsg) (tea.Model, tea.Cmd) {
+	if msg.err == nil && msg.traces != nil {
+		m.traces = msg.traces
+	}
+	return m, nil
+}
+
 func (m Model) handleActionResult(msg actionResultMsg) (tea.Model, tea.Cmd) {
 	m.statusMsg = msg.message
 	m.statusIsError = msg.isError
@@ -221,9 +230,16 @@ func (m Model) handleRefreshKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "r":
 		m.statusMsg = "Catalog refreshed"
 		m.statusIsError = false
-		return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd()), true
+		return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd(), m.loadTracesCmd()), true
 	case "p":
 		m.autoRefresh = !m.autoRefresh
+		return m, nil, true
+	case "t":
+		if m.bottomPane == bottomPaneEvents {
+			m.bottomPane = bottomPaneTraces
+		} else {
+			m.bottomPane = bottomPaneEvents
+		}
 		return m, nil, true
 	default:
 		return m, nil, false
