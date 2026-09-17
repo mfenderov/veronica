@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.7.0 - 2026-09-17
+#### Features
+- (**observability**) add tool call tracing, veronica_traces tool, and TUI traces view - (ec24fd0) - Mark Fenderov
+- (**resilience**) add downstream HTTP retry transport with exponential backoff - (e530063) - Mark Fenderov
+#### Miscellaneous Chores
+- tidy go.mod direct dependency for testify - (1df3dd9) - Mark Fenderov
+
+- - -
+
 ## v0.6.1 - 2026-09-17
 #### Bug Fixes
 - (**atlassian**) restore v2/mcp endpoint following resolution of upstream Atlassian 502 outage - (cf5f8c9) - Mark Fenderov
