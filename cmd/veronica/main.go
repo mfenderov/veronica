@@ -443,7 +443,7 @@ func populateDefaultModules(cfg *config.Config) {
 	cfg.AddModule(domain.ModuleConfig{
 		Name:      "atlassian",
 		Transport: domain.TransportHTTP,
-		URL:       "https://mcp.atlassian.com/v2/mcp",
+		URL:       "https://mcp.atlassian.com/v1/mcp",
 		OAuth: &domain.OAuthClientConfig{
 			ServerName:   "atlassian",
 			ClientID:     "REDACTED-ATLASSIAN-CLIENT-ID",

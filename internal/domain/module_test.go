@@ -29,7 +29,7 @@ func TestModuleConfigValidation(t *testing.T) {
 			cfg: domain.ModuleConfig{
 				Name:      "atlassian",
 				Transport: domain.TransportSSE,
-				URL:       "https://mcp.atlassian.com/v2/mcp",
+				URL:       "https://mcp.atlassian.com/v1/mcp",
 			},
 			wantErr: false,
 		},
