@@ -128,6 +128,16 @@ func TestRemotePodClient(t *testing.T) {
 			return transport.ResultJSON(res), nil
 		},
 	)
+	upstream.RegisterCustomTool(
+		domain.Tool{Name: "veronica_traces"},
+		func(ctx context.Context, args any) (domain.ToolResult, error) {
+			traces, err := metaHandler.RecentTraces(ctx, 10)
+			if err != nil {
+				return transport.ResultError(err), nil
+			}
+			return transport.ResultJSON(traces), nil
+		},
+	)
 
 	httpSrv := httptest.NewServer(upstream.Handler())
 	defer httpSrv.Close()
@@ -225,6 +235,13 @@ func TestRemotePodClient(t *testing.T) {
 	if !restartRes.Success {
 		t.Fatal("expected restart success = true")
 	}
+
+	// 12. Test RecentTraces
+	traces, err := remote.RecentTraces(ctx, 10)
+	if err != nil {
+		t.Fatalf("RecentTraces failed: %v", err)
+	}
+	_ = traces
 }
 
 func TestRemotePodClient_ConnectionSurvivesConnectContextCancel(t *testing.T) {

@@ -173,6 +173,21 @@ func (c *RemotePodClient) RestartDaemon(ctx context.Context) (domain.RestartResu
 	return result, nil
 }
 
+// RecentTraces retrieves the list of recent tool execution traces from the remote Veronica gateway.
+func (c *RemotePodClient) RecentTraces(ctx context.Context, limit int) ([]domain.ToolTrace, error) {
+	args := map[string]any{"limit": limit}
+	res, err := c.callTool(ctx, "veronica_traces", args)
+	if err != nil {
+		return nil, err
+	}
+
+	var traces []domain.ToolTrace
+	if err := json.Unmarshal([]byte(res), &traces); err != nil {
+		return nil, fmt.Errorf("decode traces failed: %w", err)
+	}
+	return traces, nil
+}
+
 func (c *RemotePodClient) callTool(ctx context.Context, toolName string, args any) (string, error) {
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{

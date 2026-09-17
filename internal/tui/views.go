@@ -21,10 +21,16 @@ func (m Model) View() string {
 	header := m.renderHeader()
 	health := renderHealthStrip(m.modules, m.lastErr, m.hasGoodData)
 	main := m.renderMainDashboard()
-	events := paneStyle.Width(m.width - 4).Render(renderEventsPane(m.events))
+	var bottomContent string
+	if m.bottomPane == bottomPaneTraces {
+		bottomContent = renderTracesPane(m.traces)
+	} else {
+		bottomContent = renderEventsPane(m.events)
+	}
+	bottom := paneStyle.Width(m.width - 4).Render(bottomContent)
 	footer := m.renderFooter()
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, health, main, events, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, header, health, main, bottom, footer)
 }
 
 func (m Model) renderHeader() string {
@@ -166,7 +172,7 @@ func (m Model) renderRightPane(width, height int) string {
 
 func (m Model) renderFooter() string {
 	keys := fmt.Sprintf(
-		"%s Toggle  •  %s Edit  •  %s Re-auth  •  %s Reload  •  %s Deploy  •  %s Recall  •  %s Refresh  •  %s Pause  •  %s Quit",
+		"%s Toggle  •  %s Edit  •  %s Re-auth  •  %s Reload  •  %s Deploy  •  %s Recall  •  %s Refresh  •  %s Traces  •  %s Pause  •  %s Quit",
 		footerKey.Render("[Space]"),
 		footerKey.Render("[e]"),
 		footerKey.Render("[A]"),
@@ -174,6 +180,7 @@ func (m Model) renderFooter() string {
 		footerKey.Render("[a]"),
 		footerKey.Render("[d]"),
 		footerKey.Render("[r]"),
+		footerKey.Render("[t]"),
 		footerKey.Render("[p]"),
 		footerKey.Render("[q]"),
 	)
