@@ -52,6 +52,16 @@ type Model struct {
 	activeInputIdx int
 	statusMsg      string
 	statusIsError  bool
+	// Live-ops refresh loop state.
+	events         []uiEvent
+	eventsSrc      EventSource
+	autoRefresh    bool
+	lastOk         time.Time
+	lastErr        error
+	hasGoodData    bool
+	prevModules    []domain.ModuleSummary
+	lastStatusErr  bool
+	lastModulesErr bool
 }
 
 // NewModel creates an initialized TUI Model connected to the specified PodService.
@@ -72,6 +82,8 @@ func NewModel(service domain.PodService) Model {
 		transportType: domain.TransportStdio,
 		width:         100,
 		height:        28,
+		eventsSrc:     localEventSource{},
+		autoRefresh:   true,
 	}
 }
 
@@ -80,6 +92,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadStatusCmd(),
 		m.loadModulesCmd(),
+		tickCmd(),
 	)
 }
 

@@ -16,6 +16,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m.handleWindowSize(msg)
+	case tickMsg:
+		return m.handleTickMsg()
 	case statusMsg:
 		return m.handleStatusMsg(msg)
 	case modulesMsg:
@@ -35,27 +37,91 @@ func (m Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleTickMsg() (tea.Model, tea.Cmd) {
+	if m.mode == modeAdd || m.mode == modeEdit || !m.autoRefresh {
+		return m, tickCmd()
+	}
+	return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd(), tickCmd())
+}
+
 func (m Model) handleStatusMsg(msg statusMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.statusMsg = fmt.Sprintf("Status error: %v", msg.err)
 		m.statusIsError = true
+		if !m.lastStatusErr {
+			m = m.appendEvent(newEvent(eventKindError, "status error: "+msg.err.Error()))
+		}
+		m.lastStatusErr = true
+		m.lastErr = msg.err
 		return m, nil
 	}
 	m.status = msg.status
+	if m.lastStatusErr {
+		m = m.appendEvent(newEvent(eventKindResult, "status recovered"))
+	}
+	m.lastStatusErr = false
+	m.lastOk = time.Now()
+	if !m.lastModulesErr {
+		m.lastErr = nil
+	}
+	m.hasGoodData = true
 	return m, nil
 }
 
 func (m Model) handleModulesMsg(msg modulesMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		m.statusMsg = fmt.Sprintf("Modules error: %v", msg.err)
-		m.statusIsError = true
-		return m, nil
+		return m.withModulesError(msg.err), nil
 	}
-
-	selectedName := m.currentSelectedName()
-	m.modules = sortModules(msg.modules)
-	m.cursor = m.findCursorForName(selectedName)
+	m = m.withModulesSnapshot(msg.modules)
+	m = m.markModulesOk()
 	return m, nil
+}
+
+func (m Model) withModulesError(err error) Model {
+	m.statusMsg = fmt.Sprintf("Modules error: %v", err)
+	m.statusIsError = true
+	if !m.lastModulesErr {
+		m = m.appendEvent(newEvent(eventKindError, "modules error: "+err.Error()))
+	}
+	m.lastModulesErr = true
+	m.lastErr = err
+	return m
+}
+
+func (m Model) withModulesSnapshot(mods []domain.ModuleSummary) Model {
+	selectedName := m.currentSelectedName()
+	sorted := sortModules(mods)
+	m.recordModuleDeltas(sorted)
+	m.prevModules = append([]domain.ModuleSummary(nil), sorted...)
+	m.modules = sorted
+	m.cursor = m.findCursorForName(selectedName)
+	return m
+}
+
+func (m Model) recordModuleDeltas(sorted []domain.ModuleSummary) {
+	if m.prevModules == nil {
+		return
+	}
+	src := m.eventsSrc
+	if src == nil {
+		src = localEventSource{}
+	}
+	for _, ev := range src.Deltas(m.prevModules, sorted) {
+		m = m.appendEvent(ev)
+	}
+}
+
+func (m Model) markModulesOk() Model {
+	if m.lastModulesErr {
+		m = m.appendEvent(newEvent(eventKindResult, "modules recovered"))
+	}
+	m.lastModulesErr = false
+	m.lastOk = time.Now()
+	if !m.lastStatusErr {
+		m.lastErr = nil
+	}
+	m.hasGoodData = true
+	return m
 }
 
 func (m Model) currentSelectedName() string {
@@ -91,6 +157,7 @@ func (m Model) findCursorForName(name string) int {
 func (m Model) handleActionResult(msg actionResultMsg) (tea.Model, tea.Cmd) {
 	m.statusMsg = msg.message
 	m.statusIsError = msg.isError
+	m = m.appendEvent(newEvent(eventKindResult, msg.message))
 	return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd())
 }
 
@@ -126,6 +193,9 @@ func (m Model) handleNavKey(key string) Model {
 }
 
 func (m Model) handleActionKey(key string) (tea.Model, tea.Cmd) {
+	if res, cmd, ok := m.handleRefreshKey(key); ok {
+		return res, cmd
+	}
 	switch key {
 	case "q":
 		return m, tea.Quit
@@ -141,12 +211,22 @@ func (m Model) handleActionKey(key string) (tea.Model, tea.Cmd) {
 		return m.handleRecallKey()
 	case "a":
 		return m.enterAddMode(), nil
+	default:
+		return m, nil
+	}
+}
+
+func (m Model) handleRefreshKey(key string) (tea.Model, tea.Cmd, bool) {
+	switch key {
 	case "r":
 		m.statusMsg = "Catalog refreshed"
 		m.statusIsError = false
-		return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd())
+		return m, tea.Batch(m.loadStatusCmd(), m.loadModulesCmd()), true
+	case "p":
+		m.autoRefresh = !m.autoRefresh
+		return m, nil, true
 	default:
-		return m, nil
+		return m, nil, false
 	}
 }
 
