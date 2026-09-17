@@ -431,7 +431,7 @@ modules:
   # Remote MCPs
   atlassian:
     transport: http
-    url: https://mcp.atlassian.com/v2/mcp
+    url: https://mcp.atlassian.com/v1/mcp
 
   slack:
     transport: http

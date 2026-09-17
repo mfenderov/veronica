@@ -19,10 +19,12 @@ func (m Model) View() string {
 	}
 
 	header := m.renderHeader()
+	health := renderHealthStrip(m.modules, m.lastErr, m.hasGoodData)
 	main := m.renderMainDashboard()
+	events := paneStyle.Width(m.width - 4).Render(renderEventsPane(m.events))
 	footer := m.renderFooter()
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, main, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, header, health, main, events, footer)
 }
 
 func (m Model) renderHeader() string {
@@ -47,7 +49,7 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderMainDashboard() string {
-	paneHeight := m.height - 6
+	paneHeight := m.height - 14
 	if paneHeight < 5 {
 		paneHeight = 5
 	}
@@ -164,7 +166,7 @@ func (m Model) renderRightPane(width, height int) string {
 
 func (m Model) renderFooter() string {
 	keys := fmt.Sprintf(
-		"%s Toggle  •  %s Edit  •  %s Re-auth  •  %s Reload  •  %s Deploy  •  %s Recall  •  %s Refresh  •  %s Quit",
+		"%s Toggle  •  %s Edit  •  %s Re-auth  •  %s Reload  •  %s Deploy  •  %s Recall  •  %s Refresh  •  %s Pause  •  %s Quit",
 		footerKey.Render("[Space]"),
 		footerKey.Render("[e]"),
 		footerKey.Render("[A]"),
@@ -172,6 +174,7 @@ func (m Model) renderFooter() string {
 		footerKey.Render("[a]"),
 		footerKey.Render("[d]"),
 		footerKey.Render("[r]"),
+		footerKey.Render("[p]"),
 		footerKey.Render("[q]"),
 	)
 
