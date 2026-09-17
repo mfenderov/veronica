@@ -14,6 +14,7 @@ import (
 type stubPodService struct {
 	status     domain.GatewayStatus
 	modules    []domain.ModuleSummary
+	traces     []domain.ToolTrace
 	statusErr  error
 	modulesErr error
 }
@@ -56,6 +57,10 @@ func (s *stubPodService) RestartDaemon(_ context.Context) (domain.RestartResult,
 	return domain.RestartResult{Success: true, Message: "reloaded ok"}, nil
 }
 
+func (s *stubPodService) RecentTraces(_ context.Context, _ int) ([]domain.ToolTrace, error) {
+	return s.traces, nil
+}
+
 func testLiveModel() Model {
 	svc := &stubPodService{
 		status:  domain.GatewayStatus{Uptime: "10m", ActiveModules: 1, TotalTools: 2, AllocMB: 4},
@@ -82,8 +87,8 @@ func TestLive_TickRearmsAndFetchesOnDashboard(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected BatchMsg with loads + re-arm, got %T", got)
 	}
-	if len(batch) != 3 {
-		t.Fatalf("expected 3 cmds (status, modules, tick), got %d", len(batch))
+	if len(batch) != 4 {
+		t.Fatalf("expected 4 cmds (status, modules, traces, tick), got %d", len(batch))
 	}
 	_ = u
 }
@@ -244,5 +249,78 @@ func TestLive_ViewContainsEventsAndHealth(t *testing.T) {
 	m.height = 5
 	if !strings.Contains(m.View(), "too small") {
 		t.Fatal("small-terminal guard must win")
+	}
+}
+
+func TestLive_TToggleFlipsBottomPane(t *testing.T) {
+	m := testLiveModel()
+	if m.bottomPane != bottomPaneEvents {
+		t.Fatal("expected bottomPaneEvents default")
+	}
+
+	u, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	nm := u.(Model)
+	if nm.bottomPane != bottomPaneTraces {
+		t.Fatal("expected bottomPaneTraces after t")
+	}
+	if !strings.Contains(nm.View(), "TOOL TRACES") {
+		t.Fatalf("expected TOOL TRACES in view, got:\n%s", nm.View())
+	}
+
+	u, _ = nm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	nm = u.(Model)
+	if nm.bottomPane != bottomPaneEvents {
+		t.Fatal("expected bottomPaneEvents after second t")
+	}
+	if !strings.Contains(nm.View(), "EVENTS") {
+		t.Fatalf("expected EVENTS in view, got:\n%s", nm.View())
+	}
+	if !strings.Contains(nm.View(), "[t]") {
+		t.Fatal("expected footer to document [t]")
+	}
+}
+
+func TestLive_TracesMsgUpdatesModel(t *testing.T) {
+	m := testLiveModel()
+	traceList := []domain.ToolTrace{
+		{
+			ID:         "t1",
+			Timestamp:  time.Now(),
+			ModuleName: "atlassian",
+			ToolName:   "getJiraIssue",
+			Duration:   120 * time.Millisecond,
+			IsError:    false,
+		},
+		{
+			ID:         "t2",
+			Timestamp:  time.Now(),
+			ModuleName: "slack",
+			ToolName:   "slack_send_message",
+			Duration:   2500 * time.Millisecond,
+			IsError:    true,
+			ErrorMsg:   "timeout",
+		},
+	}
+
+	u, _ := m.Update(tracesMsg{traces: traceList})
+	nm := u.(Model)
+	if len(nm.traces) != 2 {
+		t.Fatalf("expected 2 traces, got %d", len(nm.traces))
+	}
+
+	nm.bottomPane = bottomPaneTraces
+	view := nm.View()
+	if !strings.Contains(view, "getJiraIssue") || !strings.Contains(view, "slack_send_message") {
+		t.Fatalf("expected traces visible in view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "OK") || !strings.Contains(view, "ERR") {
+		t.Fatalf("expected OK and ERR status in view, got:\n%s", view)
+	}
+}
+
+func TestLive_RenderTracesPane_Empty(t *testing.T) {
+	view := renderTracesPane(nil)
+	if !strings.Contains(view, "No tool calls recorded yet") {
+		t.Fatalf("expected empty placeholder, got:\n%s", view)
 	}
 }

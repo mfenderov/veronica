@@ -65,6 +65,10 @@ func (m *mockPodService) RestartDaemon(ctx context.Context) (domain.RestartResul
 	return domain.RestartResult{Success: true, Message: "reloaded ok"}, nil
 }
 
+func (m *mockPodService) RecentTraces(ctx context.Context, limit int) ([]domain.ToolTrace, error) {
+	return nil, nil
+}
+
 func TestTUI_Lifecycle(t *testing.T) {
 	t.Parallel()
 

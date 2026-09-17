@@ -37,6 +37,13 @@ type actionResultMsg struct {
 	isError bool
 }
 
+type bottomPaneMode int
+
+const (
+	bottomPaneEvents bottomPaneMode = iota
+	bottomPaneTraces
+)
+
 // Model represents the Bubble Tea model and state for the Veronica interactive TUI.
 type Model struct {
 	service        domain.PodService
@@ -62,6 +69,8 @@ type Model struct {
 	prevModules    []domain.ModuleSummary
 	lastStatusErr  bool
 	lastModulesErr bool
+	bottomPane     bottomPaneMode
+	traces         []domain.ToolTrace
 }
 
 // NewModel creates an initialized TUI Model connected to the specified PodService.
@@ -84,6 +93,8 @@ func NewModel(service domain.PodService) Model {
 		height:        28,
 		eventsSrc:     localEventSource{},
 		autoRefresh:   true,
+		bottomPane:    bottomPaneEvents,
+		traces:        make([]domain.ToolTrace, 0),
 	}
 }
 
@@ -92,6 +103,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadStatusCmd(),
 		m.loadModulesCmd(),
+		m.loadTracesCmd(),
 		tickCmd(),
 	)
 }
@@ -111,6 +123,20 @@ func (m Model) loadModulesCmd() tea.Cmd {
 		defer cancel()
 		mods, err := m.service.ListModules(ctx)
 		return modulesMsg{modules: mods, err: err}
+	}
+}
+
+type tracesMsg struct {
+	traces []domain.ToolTrace
+	err    error
+}
+
+func (m Model) loadTracesCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+		defer cancel()
+		traces, err := m.service.RecentTraces(ctx, 20)
+		return tracesMsg{traces: traces, err: err}
 	}
 }
 
