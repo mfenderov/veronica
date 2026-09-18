@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.8.0 - 2026-09-18
+#### Features
+- (**security**) secure local gateway with shared-mode bearer auth - (6d2f0ec) - Mark Fenderov
+
+- - -
+
 ## v0.7.0 - 2026-09-17
 #### Features
 - (**observability**) add tool call tracing, veronica_traces tool, and TUI traces view - (ec24fd0) - Mark Fenderov
