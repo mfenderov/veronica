@@ -217,10 +217,15 @@ func toMCPContent(c domain.ToolContent) mcp.Content {
 
 // Start launches the HTTP server listening on the provided address.
 func (u *UpstreamServer) Start(addr string) error {
+	return u.StartWithHandler(addr, u.Handler())
+}
+
+// StartWithHandler launches the HTTP server listening on the provided address with the supplied handler.
+func (u *UpstreamServer) StartWithHandler(addr string, handler http.Handler) error {
 	u.mu.Lock()
 	u.httpServer = &http.Server{
 		Addr:    addr,
-		Handler: u.Handler(),
+		Handler: handler,
 	}
 	srv := u.httpServer
 	u.mu.Unlock()

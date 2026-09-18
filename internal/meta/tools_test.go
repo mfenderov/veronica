@@ -3,6 +3,8 @@ package meta_test
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -13,7 +15,8 @@ import (
 )
 
 type mockClientFactory struct {
-	failClient bool
+	failClient  bool
+	createCalls int
 }
 
 type mockFailingClient struct {
@@ -47,6 +50,7 @@ func (m *mockRunningClient) CallTool(ctx context.Context, call domain.ToolCall) 
 func (m *mockRunningClient) Status() domain.ModuleStatus { return domain.StatusActive }
 
 func (f *mockClientFactory) CreateClient(ctx context.Context, cfg domain.ModuleConfig) (domain.DownstreamClient, error) {
+	f.createCalls++
 	if f.failClient {
 		return &mockFailingClient{errMsg: "401 invalid_token"}, nil
 	}
@@ -55,6 +59,51 @@ func (f *mockClientFactory) CreateClient(ctx context.Context, cfg domain.ModuleC
 			{Name: cfg.Name + "_query", OriginModule: cfg.Name},
 		},
 	}, nil
+}
+
+func TestDeployModuleCommandPolicy(t *testing.T) {
+	t.Parallel()
+
+	allowed, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatalf("LookPath sh failed: %v", err)
+	}
+	policy, err := meta.NewCommandPolicy([]string{allowed})
+	if err != nil {
+		t.Fatalf("NewCommandPolicy failed: %v", err)
+	}
+
+	reg := registry.New()
+	store, err := auth.NewFileStore(t.TempDir() + "/auth.json")
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+	factory := &mockClientFactory{}
+	handler := meta.NewHandler(reg, store, factory)
+	handler.SetCommandPolicy(policy)
+
+	_, err = handler.DeployModule(t.Context(), meta.DeployParams{
+		Name:      "blocked-stdio",
+		Transport: "stdio",
+		Command:   os.Args[0],
+	})
+	if err == nil {
+		t.Fatal("expected disallowed stdio command to fail")
+	}
+	if factory.createCalls != 0 {
+		t.Fatalf("expected policy rejection before CreateClient, got %d calls", factory.createCalls)
+	}
+
+	if _, err := handler.DeployModule(t.Context(), meta.DeployParams{
+		Name:      "allowed-http",
+		Transport: "http",
+		URL:       "http://example.com/mcp",
+	}); err != nil {
+		t.Fatalf("expected HTTP deployment to remain unaffected: %v", err)
+	}
+	if factory.createCalls != 1 {
+		t.Fatalf("expected HTTP deployment to call CreateClient once, got %d calls", factory.createCalls)
+	}
 }
 
 func TestMetaToolsLifecycle(t *testing.T) {

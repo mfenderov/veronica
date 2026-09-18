@@ -3,7 +3,9 @@ package client_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -242,6 +244,58 @@ func TestRemotePodClient(t *testing.T) {
 		t.Fatalf("RecentTraces failed: %v", err)
 	}
 	_ = traces
+}
+
+func TestRemotePodClientGatewayToken(t *testing.T) {
+	tests := []struct {
+		name      string
+		envToken  string
+		wantValue string
+	}{
+		{name: "configured token", envToken: "test-gateway-token", wantValue: "Bearer test-gateway-token"},
+		{name: "unset token", wantValue: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(auth.GatewayTokenEnv, tt.envToken)
+
+			upstream := transport.NewUpstreamServer(registry.New())
+			var mu sync.Mutex
+			var headers []string
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == "/sse" {
+					mu.Lock()
+					headers = append(headers, r.Header.Get("Authorization"))
+					mu.Unlock()
+				}
+				upstream.Handler().ServeHTTP(w, r)
+			})
+			srv := httptest.NewServer(handler)
+			defer srv.Close()
+
+			remote, err := client.NewRemotePodClient(srv.URL + "/sse")
+			if err != nil {
+				t.Fatalf("NewRemotePodClient failed: %v", err)
+			}
+			defer remote.Close()
+
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			if err := remote.Connect(ctx); err != nil {
+				t.Fatalf("remote.Connect failed: %v", err)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(headers) == 0 {
+				t.Fatal("expected initial SSE request to be recorded")
+			}
+			if headers[0] != tt.wantValue {
+				t.Fatalf("initial SSE Authorization = %q, want %q", headers[0], tt.wantValue)
+			}
+		})
+	}
 }
 
 func TestRemotePodClient_ConnectionSurvivesConnectContextCancel(t *testing.T) {

@@ -22,6 +22,7 @@ type Handler struct {
 	authStore     domain.AuthStore
 	tokenProvider domain.TokenProvider
 	factory       ClientFactory
+	commandPolicy CommandPolicy
 	startedAt     time.Time
 }
 
@@ -38,6 +39,11 @@ func NewHandler(reg *registry.Registry, store domain.AuthStore, factory ClientFa
 // SetTokenProvider configures the token provider used for OAuth module authentication.
 func (h *Handler) SetTokenProvider(provider domain.TokenProvider) {
 	h.tokenProvider = provider
+}
+
+// SetCommandPolicy configures the policy used for stdio module commands.
+func (h *Handler) SetCommandPolicy(policy CommandPolicy) {
+	h.commandPolicy = policy
 }
 
 var _ domain.PodService = (*Handler)(nil)
@@ -71,6 +77,11 @@ func (h *Handler) DeployModule(ctx context.Context, p DeployParams) (DeployResul
 
 	if err := cfg.Validate(); err != nil {
 		return DeployResult{}, fmt.Errorf("invalid module config: %w", err)
+	}
+	if cfg.Transport == domain.TransportStdio {
+		if err := h.commandPolicy.Validate(cfg.Command); err != nil {
+			return DeployResult{}, fmt.Errorf("stdio command rejected by policy: %w", err)
+		}
 	}
 
 	client, err := h.factory.CreateClient(ctx, cfg)

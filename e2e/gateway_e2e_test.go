@@ -16,6 +16,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/mfenderov/veronica/internal/auth"
+	"github.com/mfenderov/veronica/internal/client"
 	"github.com/mfenderov/veronica/internal/config"
 	"github.com/mfenderov/veronica/internal/domain"
 	"github.com/mfenderov/veronica/internal/meta"
@@ -378,5 +379,104 @@ func TestUltimateGatewayE2E(t *testing.T) {
 	})
 	if err != nil || recallRes.IsError {
 		t.Fatalf("recall dynamic-stdio failed: %v, res=%+v", err, recallRes)
+	}
+}
+
+func TestAuthenticatedSharedGateway(t *testing.T) {
+	t.Setenv(auth.GatewayTokenEnv, "test-shared-gateway-token")
+
+	stdioBin := buildMockStdioBinary(t)
+	reg := registry.New()
+	store, err := auth.NewFileStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatalf("failed to init auth store: %v", err)
+	}
+	factory := &testClientFactory{}
+	metaHandler := meta.NewHandler(reg, store, factory)
+	policy, err := meta.NewCommandPolicy([]string{stdioBin})
+	if err != nil {
+		t.Fatalf("failed to configure command policy: %v", err)
+	}
+	metaHandler.SetCommandPolicy(policy)
+
+	cfg := config.DefaultConfig()
+	cfg.Server.Addr = ":9090"
+	cfg.AddModule(domain.ModuleConfig{
+		Name:      "stdio-mod",
+		Transport: domain.TransportStdio,
+		Command:   stdioBin,
+	})
+
+	moduleCfg := cfg.Modules["stdio-mod"]
+	stdioClient, err := factory.CreateClient(t.Context(), moduleCfg)
+	if err != nil {
+		t.Fatalf("failed to create stdio module: %v", err)
+	}
+	if err := stdioClient.Start(t.Context()); err != nil {
+		t.Fatalf("failed to start stdio module: %v", err)
+	}
+	t.Cleanup(func() { _ = stdioClient.Stop(t.Context()) })
+	if err := reg.Register(domain.NewModule(moduleCfg), stdioClient); err != nil {
+		t.Fatalf("failed to register stdio module: %v", err)
+	}
+
+	upstream := transport.NewUpstreamServer(reg)
+	registerGatewayMetaTools(upstream, metaHandler)
+
+	requiresAuth, err := config.RequiresGatewayAuth(cfg.Server.Addr)
+	if err != nil {
+		t.Fatalf("failed to classify shared listener: %v", err)
+	}
+	if !requiresAuth {
+		t.Fatal("expected shared listener to require authentication")
+	}
+	gatewaySrv := httptest.NewServer(transport.WithBearerAuth(upstream.Handler(), "test-shared-gateway-token"))
+	t.Cleanup(gatewaySrv.Close)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	unauthenticated, err := mcpclient.NewSSEMCPClient(gatewaySrv.URL + "/sse")
+	if err != nil {
+		t.Fatalf("NewSSEMCPClient unauthenticated failed: %v", err)
+	}
+	startErr := unauthenticated.Start(ctx)
+	if startErr == nil {
+		_, initErr := unauthenticated.Initialize(ctx, mcp.InitializeRequest{
+			Params: mcp.InitializeParams{
+				ClientInfo: mcp.Implementation{Name: "unauthenticated", Version: "1.0.0"},
+			},
+		})
+		if initErr == nil {
+			t.Fatal("expected unauthenticated MCP client initialization to fail")
+		}
+	}
+	_ = unauthenticated.Close()
+	if traces := reg.RecentTraces(10); len(traces) != 0 {
+		t.Fatalf("unauthenticated request produced downstream traces: %+v", traces)
+	}
+
+	authenticated, err := client.NewRemotePodClient(gatewaySrv.URL + "/sse")
+	if err != nil {
+		t.Fatalf("NewRemotePodClient failed: %v", err)
+	}
+	t.Cleanup(authenticated.Close)
+	if err := authenticated.Connect(ctx); err != nil {
+		t.Fatalf("authenticated client failed to connect: %v", err)
+	}
+
+	modules, err := authenticated.ListModules(ctx)
+	if err != nil {
+		t.Fatalf("authenticated ListModules failed: %v", err)
+	}
+	if len(modules) != 1 || modules[0].Name != "stdio-mod" {
+		t.Fatalf("unexpected authenticated module list: %+v", modules)
+	}
+	status, err := authenticated.Status(ctx)
+	if err != nil {
+		t.Fatalf("authenticated Status failed: %v", err)
+	}
+	if status.ActiveModules != 1 {
+		t.Fatalf("expected one active module, got %d", status.ActiveModules)
 	}
 }

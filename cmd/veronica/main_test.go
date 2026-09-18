@@ -171,6 +171,44 @@ func TestServeCmd_Flags(t *testing.T) {
 	}
 }
 
+func TestBuildGatewayHandlerProtectsSharedListener(t *testing.T) {
+	t.Setenv(auth.GatewayTokenEnv, "test-gateway-token")
+
+	for _, addr := range []string{"0.0.0.0:9090", ":9090"} {
+		t.Run(addr, func(t *testing.T) {
+			upstream := transport.NewUpstreamServer(registry.New())
+			handler, err := buildGatewayHandler(upstream, config.ServerConfig{Addr: addr})
+			if err != nil {
+				t.Fatalf("buildGatewayHandler failed: %v", err)
+			}
+
+			srv := httptest.NewServer(handler)
+			t.Cleanup(srv.Close)
+
+			unauthorizedReq, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/sse", http.NoBody)
+			unauthorizedResp, err := http.DefaultClient.Do(unauthorizedReq)
+			if err != nil {
+				t.Fatalf("unauthorized request failed: %v", err)
+			}
+			_ = unauthorizedResp.Body.Close()
+			if unauthorizedResp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("unauthorized status = %d, want %d", unauthorizedResp.StatusCode, http.StatusUnauthorized)
+			}
+
+			authorizedReq, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/sse", http.NoBody)
+			authorizedReq.Header.Set("Authorization", "Bearer test-gateway-token")
+			authorizedResp, err := http.DefaultClient.Do(authorizedReq)
+			if err != nil {
+				t.Fatalf("authorized request failed: %v", err)
+			}
+			_ = authorizedResp.Body.Close()
+			if authorizedResp.StatusCode != http.StatusOK {
+				t.Fatalf("authorized status = %d, want %d", authorizedResp.StatusCode, http.StatusOK)
+			}
+		})
+	}
+}
+
 func TestPrintModulesList(t *testing.T) {
 	t.Parallel()
 
@@ -505,6 +543,22 @@ func TestSetupApp_WithTempConfig(t *testing.T) {
 	}
 }
 
+func TestSetupApp_RejectsInvalidAllowedCommand(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfg := config.DefaultConfig()
+	cfg.Server.AllowedCommands = []string{filepath.Join(tmpDir, "missing-command")}
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("save config failed: %v", err)
+	}
+
+	if _, err := setupApp(cfgPath); err == nil {
+		t.Fatal("expected setupApp to reject an invalid allowed command")
+	}
+}
+
 func TestMountSingleModule_Disabled(t *testing.T) {
 	t.Parallel()
 
@@ -586,6 +640,23 @@ func TestIsDaemonReachable(t *testing.T) {
 
 	if !isDaemonReachable(srv.URL) {
 		t.Fatal("expected reachable for active mock server")
+	}
+}
+
+func TestIsDaemonReachableUsesGatewayToken(t *testing.T) {
+	t.Setenv(auth.GatewayTokenEnv, "test-gateway-token")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer test-gateway-token" {
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if !isDaemonReachable(srv.URL) {
+		t.Fatal("expected protected daemon to be reachable with the configured gateway token")
 	}
 }
 
