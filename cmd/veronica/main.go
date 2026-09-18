@@ -100,6 +100,11 @@ func setupApp(cfgPath string) (*appContext, error) {
 	populateDefaultModules(cfg)
 	_ = cfg.Save(cfgPath)
 
+	commandPolicy, err := meta.NewCommandPolicy(cfg.Server.AllowedCommands)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure command policy: %w", err)
+	}
+
 	authStore, err := auth.NewFileStore(defaultAuth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init auth store: %w", err)
@@ -114,6 +119,7 @@ func setupApp(cfgPath string) (*appContext, error) {
 	factory := &downstreamFactory{tokenProvider: oauthMgr}
 	metaHandler := meta.NewHandler(reg, authStore, factory)
 	metaHandler.SetTokenProvider(oauthMgr)
+	metaHandler.SetCommandPolicy(commandPolicy)
 
 	return &appContext{
 		cfg:         cfg,
@@ -161,10 +167,35 @@ func runServer(app *appContext, stdioMode bool) error {
 	if stdioMode {
 		return upstream.ServeStdio()
 	}
+	return runHTTPServer(upstream, app.cfg.Server, cancel)
+}
+
+func runHTTPServer(upstream *transport.UpstreamServer, cfg config.ServerConfig, cancel context.CancelFunc) error {
+	handler, err := buildGatewayHandler(upstream, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to configure gateway handler: %w", err)
+	}
 
 	setupGracefulShutdown(upstream, cancel)
-	fmt.Printf("[veronica] 🛰️ Veronica gateway listening on %s/sse\n", app.cfg.Server.Addr)
-	return upstream.Start(app.cfg.Server.Addr)
+	fmt.Printf("[veronica] 🛰️ Veronica gateway listening on %s/sse\n", cfg.Addr)
+	return upstream.StartWithHandler(cfg.Addr, handler)
+}
+
+func buildGatewayHandler(upstream *transport.UpstreamServer, cfg config.ServerConfig) (http.Handler, error) {
+	handler := upstream.Handler()
+	requiresAuth, err := config.RequiresGatewayAuth(cfg.Addr)
+	if err != nil {
+		return nil, err
+	}
+	if !requiresAuth {
+		return handler, nil
+	}
+
+	token, err := auth.LoadGatewayToken(cfg.AuthTokenFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load gateway token: %w", err)
+	}
+	return transport.WithBearerAuth(handler, token), nil
 }
 
 // startSupervisor runs the module supervision loop in the background for the lifetime
@@ -861,6 +892,9 @@ func isDaemonReachable(endpoint string) bool {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return false
+	}
+	if token := strings.TrimSpace(os.Getenv(auth.GatewayTokenEnv)); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

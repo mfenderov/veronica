@@ -4,8 +4,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/mfenderov/veronica/internal/domain"
@@ -14,8 +17,32 @@ import (
 
 // ServerConfig holds network listening and callback addresses for the gateway.
 type ServerConfig struct {
-	Addr              string `yaml:"addr"`
-	OAuthCallbackAddr string `yaml:"oauth_callback_addr"`
+	Addr              string   `yaml:"addr"`
+	OAuthCallbackAddr string   `yaml:"oauth_callback_addr"`
+	AuthTokenFile     string   `yaml:"auth_token_file"`
+	AllowedCommands   []string `yaml:"allowed_commands"`
+}
+
+// RequiresGatewayAuth reports whether a server address may be reachable beyond the local machine.
+func RequiresGatewayAuth(addr string) (bool, error) {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return false, fmt.Errorf("invalid server address %q: %w", addr, err)
+	}
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 0 || portNumber > 65535 {
+		return false, fmt.Errorf("invalid server address %q: invalid port", addr)
+	}
+
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return host == "", nil
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true, nil
+	}
+	return !ip.IsLoopback(), nil
 }
 
 // Config represents the complete persistent configuration for the Veronica gateway.
@@ -29,7 +56,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Addr:              ":9090",
+			Addr:              "127.0.0.1:9090",
 			OAuthCallbackAddr: "127.0.0.1:9091",
 		},
 		Modules: make(map[string]domain.ModuleConfig),

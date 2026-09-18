@@ -71,7 +71,7 @@ make install  # Compiles binary and installs to ~/bin/veronica
                             │ Single Endpoint: http://localhost:9090/sse
                             ▼
 ┌────────────────────────────────────────────────────────┐
-│ Veronica Gateway Daemon (:9090)                        │
+│ Veronica Gateway Daemon (127.0.0.1:9090)               │
 │                                                        │
 │  - 🌟 Meta-Tools (`veronica_deploy_module`, etc.)      │
 │  - 🔐 Central Auth & OAuth Engine (:9091)              │
@@ -149,7 +149,7 @@ Veronica equips connected AI agents with tools to manage their own tool environm
 ## CLI Usage
 
 ```bash
-# Start the gateway daemon (SSE / HTTP server on :9090)
+# Start the gateway daemon (loopback-only by default: 127.0.0.1:9090)
 veronica serve
 
 # Start with a custom configuration file path
@@ -199,7 +199,7 @@ Here is a complete, real-world example showing how to mount a memory tool (`mark
 ### 1. Launch the Veronica Daemon
 ```bash
 veronica serve
-# [veronica] 🛰️ Veronica gateway listening on :9090/sse
+# [veronica] 🛰️ Veronica gateway listening on 127.0.0.1:9090/sse
 ```
 *(Or keep it running 24/7 in the background as a macOS LaunchAgent).*
 
@@ -238,7 +238,7 @@ Open your OpenCode chat and ask:
 
 **Behind the Scenes:**
 1. OpenCode issues an MCP tool call: `mark42_search_nodes(query="Go microservices")` (or `search_nodes(...)`).
-2. Veronica catches the request on `:9090/sse` and routes it over stdio JSON-RPC to the supervised `mark42-server` process.
+2. Veronica catches the request on `127.0.0.1:9090/sse` and routes it over stdio JSON-RPC to the supervised `mark42-server` process.
 3. Mark42 queries its local knowledge graph and returns the entities.
 4. Veronica delivers the payload back to OpenCode's context window with sub-millisecond dispatch.
 
@@ -420,7 +420,16 @@ Veronica manages tool definitions cleanly. You only need to define your downstre
 
 ```yaml
 server:
-  addr: :9090
+  # Loopback-only default. An empty host (:9090), 0.0.0.0, [::], or any
+  # non-loopback address switches to shared mode (see below) and requires
+  # a gateway token.
+  addr: 127.0.0.1:9090
+  # Shared mode only: path to a file containing the bearer token
+  # (alternative to the VERONICA_GATEWAY_TOKEN environment variable).
+  # auth_token_file: ~/.config/veronica/gateway-token
+  # Optional allowlist for dynamically deployed stdio commands.
+  # Empty (default) preserves current local behavior.
+  # allowed_commands: [/opt/homebrew/bin/mark42-server]
 
 modules:
   # Local stdio MCP
@@ -442,6 +451,57 @@ modules:
 - **Automatic Defaults & Discovery**: Endpoints, Dynamic Client Registration (RFC 7591), and required scopes are discovered from downstream metadata (`/.well-known/oauth-protected-resource`) or seeded by Veronica defaults.
 - **Interactive Consent**: Triggering re-auth in the TUI (or calling `veronica_reauth_module`) automatically opens your browser for OAuth 2.0 PKCE consent and captures the callback on a local listener.
 - **Transparent Token Management**: Tokens, refresh cycles, and header injections are persisted in `~/.config/veronica/auth.json`. You never have to manually author raw credentials, scopes, or tokens.
+
+### Local Loopback vs Shared Mode
+
+The gateway binds to loopback by default (`127.0.0.1:9090`), so no bearer token is
+required for local use — local processes are the declared trust boundary. stdio mode
+(`veronica serve --stdio`) never opens a TCP port and is unaffected.
+
+Binding to a non-loopback address is an explicit opt-in to **shared mode**. An empty
+host (`:9090`), `0.0.0.0`, `[::]`, or any non-loopback hostname requires a gateway
+bearer token; without one the daemon refuses to start before listening:
+
+```text
+failed to configure gateway handler: failed to load gateway token: gateway token is missing
+```
+
+Provide the token via the `VERONICA_GATEWAY_TOKEN` environment variable (takes
+precedence) or point `server.auth_token_file` at a file containing the token. The
+token lives outside the YAML config — ideally in an owner-readable file — and is never
+logged or echoed in errors. Malformed listen addresses also fail before the server
+starts.
+
+Shared mode wraps every HTTP transport path — legacy SSE (`/sse`, `/message`) and
+Streamable HTTP (`/mcp`, `/`) — in bearer authentication. Requests without a valid
+`Authorization: Bearer <token>` header receive HTTP 401 with
+`WWW-Authenticate: Bearer` and never reach MCP dispatch. The `veronica tui` remote
+client sends the token automatically when `VERONICA_GATEWAY_TOKEN` is set; other
+harnesses use their native header configuration, e.g.:
+
+```json
+{
+  "servers": {
+    "veronica": {
+      "type": "http",
+      "url": "http://<shared-host>:9090/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-gateway-token>"
+      }
+    }
+  }
+}
+```
+
+### Optional Stdio Command Allowlist
+
+Dynamic stdio deployment (`veronica_deploy_module`) stays available. To restrict which
+executables agents may deploy, set `server.allowed_commands` to a list of executable
+paths or names. Entries are resolved with `exec.LookPath` at startup — an unresolvable
+entry is a configuration error — and each deploy request is resolved the same way and
+compared by exact path before any process is spawned. An empty list (the default)
+preserves current local behavior. The allowlist is an additional control, not a
+replacement for shared-mode authentication.
 
 ---
 

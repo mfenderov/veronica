@@ -5,11 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mfenderov/veronica/internal/domain"
 )
+
+const gatewayTokenEnv = "VERONICA_GATEWAY_TOKEN"
 
 // RemotePodClient implements domain.PodService over an MCP transport connecting to a remote Veronica gateway.
 type RemotePodClient struct {
@@ -26,7 +30,13 @@ func NewRemotePodClient(endpoint string) (*RemotePodClient, error) {
 		endpoint = "http://localhost:9090/sse"
 	}
 
-	c, err := client.NewSSEMCPClient(endpoint)
+	c, err := client.NewSSEMCPClient(endpoint, client.WithHeaderFunc(func(context.Context) map[string]string {
+		token := strings.TrimSpace(os.Getenv(gatewayTokenEnv))
+		if token == "" {
+			return map[string]string{}
+		}
+		return map[string]string{"Authorization": "Bearer " + token}
+	}))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
