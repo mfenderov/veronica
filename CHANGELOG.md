@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.8.3 - 2026-09-21
+#### Miscellaneous Chores
+- (**deps**) Bump github.com/charmbracelet/bubbles from 0.21.0 to 1.0.0 - (e1442a2) - dependabot[bot]
+
+- - -
+
 ## v0.8.2 - 2026-09-21
 #### Miscellaneous Chores
 - (**deps**) Bump github.com/stretchr/testify from 1.11.1 to 1.12.1 - (a4f3a17) - dependabot[bot]
