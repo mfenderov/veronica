@@ -180,6 +180,16 @@ veronica version
 - **SSE legacy:** `GET /sse` event stream + `POST /message` for older clients (OpenCode remote, existing configs). Kept for backward compatibility.
 - **stdio:** `veronica serve --stdio` runs as a single-client subprocess over stdin/stdout (no TCP port). Use for Claude Code / CLI `mcp add` local modes.
 
+### Persistent daemon (systemd / launchd)
+
+```bash
+veronica install-service             # write + enable + start the background service
+veronica install-service --dry-run   # print the unit file without installing
+veronica install-service --uninstall # stop, disable and remove it
+```
+
+Uses `~/.config/veronica/config.yaml` unless `--config` points elsewhere. The unit restarts the gateway on failure.
+
 ### First-run prerequisites
 
 On first `serve`, Veronica warns (to stderr, never fails the daemon) when an enabled
@@ -201,7 +211,7 @@ Here is a complete, real-world example showing how to mount a memory tool (`mark
 veronica serve
 # [veronica] 🛰️ Veronica gateway listening on 127.0.0.1:9090/sse
 ```
-*(Or keep it running 24/7 in the background as a macOS LaunchAgent).*
+*(Or keep it running 24/7 — `veronica install-service` writes a systemd user unit on Linux or a LaunchAgent plist on macOS and starts it. Re-run with `--uninstall` to remove.)*
 
 ### 2. Mount Mark42 into Veronica
 Mount your MCP server dynamically using the TUI (`veronica tui` -> press `a`), ask your AI assistant to call `veronica_deploy_module`, or add it to `~/.config/veronica/config.yaml` before starting the daemon:
@@ -211,23 +221,30 @@ modules:
   mark42:
     name: mark42
     transport: stdio
-    command: /opt/homebrew/bin/mark42-server
+    command: /home/linuxbrew/.linuxbrew/bin/mark42-server
 ```
+*(Use your local path — run `which mark42-server`. On Apple Silicon Homebrew it is typically `/opt/homebrew/bin/mark42-server`.)*
 
 Veronica immediately spawns Mark42, introspects its capabilities, and mounts its tools (`mark42_search_nodes`, `mark42_read_graph`, etc.) into the live catalog. It also registers un-prefixed aliases (`search_nodes`) for seamless backward compatibility and broadcasts an MCP `notifications/tools/list_changed` event to all connected clients.
 
 ### 3. Connect OpenCode to Veronica (Once)
-In `~/.config/opencode/opencode.jsonc`, point OpenCode to Veronica:
+In `~/.config/opencode/opencode.jsonc`, point OpenCode to Veronica (OpenCode V2 shape, Streamable HTTP endpoint):
 
 ```jsonc
 {
   "mcp": {
-    "veronica": {
-      "type": "remote",
-      "url": "http://localhost:9090/sse"
+    "servers": {
+      "veronica": {
+        "type": "remote",
+        "url": "http://localhost:9090/mcp"
+      }
     }
   }
 }
+```
+*Or via the CLI (writes the same entry globally):*
+```bash
+opencode mcp add veronica --global --url http://localhost:9090/mcp
 ```
 *You never have to edit OpenCode's configuration again when adding, updating, or removing tools.*
 
@@ -238,7 +255,7 @@ Open your OpenCode chat and ask:
 
 **Behind the Scenes:**
 1. OpenCode issues an MCP tool call: `mark42_search_nodes(query="Go microservices")` (or `search_nodes(...)`).
-2. Veronica catches the request on `127.0.0.1:9090/sse` and routes it over stdio JSON-RPC to the supervised `mark42-server` process.
+2. Veronica catches the request on `127.0.0.1:9090/mcp` and routes it over stdio JSON-RPC to the supervised `mark42-server` process.
 3. Mark42 queries its local knowledge graph and returns the entities.
 4. Veronica delivers the payload back to OpenCode's context window with sub-millisecond dispatch.
 
@@ -310,17 +327,24 @@ In `~/.copilot/mcp-config.json` (or workspace `.mcp.json`):
 
 ### 3. OpenCode
 
-In `~/.config/opencode/opencode.jsonc`:
+In `~/.config/opencode/opencode.jsonc` (OpenCode V2 shape, Streamable HTTP endpoint):
 
 ```jsonc
 {
   "mcp": {
-    "veronica": {
-      "type": "remote",
-      "url": "http://localhost:9090/sse"
+    "servers": {
+      "veronica": {
+        "type": "remote",
+        "url": "http://localhost:9090/mcp"
+      }
     }
   }
 }
+```
+
+*Or via the CLI:*
+```bash
+opencode mcp add veronica --global --url http://localhost:9090/mcp
 ```
 
 *Or via local stdio:*
