@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.9.0 - 2026-09-23
+#### Features
+- log mounted module line on dynamic deploy - (a917801) - mfenderov
+- add install-service command for daemon persistence - (ce86bb4) - mfenderov
+- publish homebrew cask to mfenderov/tap on release - (064c117) - mfenderov
+#### Bug Fixes
+- make install respects BINDIR and prefers ~/.local/bin on PATH - (4b7784f) - mfenderov
+#### Documentation
+- update OpenCode setup to V2 mcp.servers shape and /mcp endpoint - (b4843b6) - mfenderov
+
+- - -
+
 ## v0.8.3 - 2026-09-21
 #### Miscellaneous Chores
 - (**deps**) Bump github.com/charmbracelet/bubbles from 0.21.0 to 1.0.0 - (e1442a2) - dependabot[bot]
