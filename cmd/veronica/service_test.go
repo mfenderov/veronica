@@ -352,3 +352,13 @@ func TestResolveExecPath_NonEmpty(t *testing.T) {
 		t.Fatal("expected non-empty executable path")
 	}
 }
+
+func TestLogMountedModule_Format(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	logMountedModule(&out, "context7", 2)
+	if out.String() != "[veronica] Mounted module context7 (2 tools)\n" {
+		t.Fatalf("unexpected log line: %q", out.String())
+	}
+}
