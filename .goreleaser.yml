@@ -21,6 +21,24 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+homebrew_casks:
+  - name: veronica
+    repository:
+      owner: mfenderov
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/mfenderov/veronica"
+    description: "Autonomous local MCP gateway and dynamic tool pod"
+    binaries:
+      - veronica
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/veronica"]
+          end
+
 changelog:
   sort: asc
   filters:

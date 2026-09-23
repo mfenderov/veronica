@@ -69,6 +69,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newTUICmd())
 	rootCmd.AddCommand(newDoctorCmd())
+	rootCmd.AddCommand(newInstallServiceCmd())
 	return rootCmd
 }
 
@@ -244,7 +245,7 @@ func mountSingleModule(ctx context.Context, modCfg domain.ModuleConfig, factory 
 		return
 	}
 	if !quiet {
-		fmt.Printf("[veronica] Mounted module %s (%d tools)\n", modCfg.Name, len(mod.Tools))
+		logMountedModule(os.Stdout, modCfg.Name, len(mod.Tools))
 	}
 }
 
@@ -257,6 +258,10 @@ func startModuleClient(ctx context.Context, modCfg domain.ModuleConfig, factory 
 		return nil, fmt.Errorf("start %s: %w", modCfg.Name, err)
 	}
 	return cli, nil
+}
+
+func logMountedModule(w io.Writer, name string, toolCount int) {
+	fmt.Fprintf(w, "[veronica] Mounted module %s (%d tools)\n", name, toolCount)
 }
 
 func logModuleWarn(quiet bool, err error) {
@@ -411,6 +416,7 @@ func registerDeployModuleTool(upstream *transport.UpstreamServer, h *meta.Handle
 			})
 			_ = cfg.Save(cfgPath)
 
+			logMountedModule(os.Stdout, res.Name, len(res.Tools))
 			return transport.ResultJSON(res), nil
 		},
 	)
