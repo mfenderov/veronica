@@ -69,6 +69,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newTUICmd())
 	rootCmd.AddCommand(newDoctorCmd())
+	rootCmd.AddCommand(newInstallServiceCmd())
 	return rootCmd
 }
 

@@ -180,6 +180,16 @@ veronica version
 - **SSE legacy:** `GET /sse` event stream + `POST /message` for older clients (OpenCode remote, existing configs). Kept for backward compatibility.
 - **stdio:** `veronica serve --stdio` runs as a single-client subprocess over stdin/stdout (no TCP port). Use for Claude Code / CLI `mcp add` local modes.
 
+### Persistent daemon (systemd / launchd)
+
+```bash
+veronica install-service             # write + enable + start the background service
+veronica install-service --dry-run   # print the unit file without installing
+veronica install-service --uninstall # stop, disable and remove it
+```
+
+Uses `~/.config/veronica/config.yaml` unless `--config` points elsewhere. The unit restarts the gateway on failure.
+
 ### First-run prerequisites
 
 On first `serve`, Veronica warns (to stderr, never fails the daemon) when an enabled
@@ -201,7 +211,7 @@ Here is a complete, real-world example showing how to mount a memory tool (`mark
 veronica serve
 # [veronica] 🛰️ Veronica gateway listening on 127.0.0.1:9090/sse
 ```
-*(Or keep it running 24/7 in the background as a macOS LaunchAgent).*
+*(Or keep it running 24/7 — `veronica install-service` writes a systemd user unit on Linux or a LaunchAgent plist on macOS and starts it. Re-run with `--uninstall` to remove.)*
 
 ### 2. Mount Mark42 into Veronica
 Mount your MCP server dynamically using the TUI (`veronica tui` -> press `a`), ask your AI assistant to call `veronica_deploy_module`, or add it to `~/.config/veronica/config.yaml` before starting the daemon:

@@ -32,7 +32,7 @@ func TestNewRootCmd_Subcommands(t *testing.T) {
 		names[c.Name()] = true
 	}
 
-	for _, expected := range []string{"serve", "list", "version", "tui", "doctor"} {
+	for _, expected := range []string{"serve", "list", "version", "tui", "doctor", "install-service"} {
 		if !names[expected] {
 			t.Errorf("expected command %s to exist", expected)
 		}
