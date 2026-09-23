@@ -50,7 +50,17 @@ clean:
 
 ## Install
 
+# Destination directory for installed binaries. Defaults to ~/.local/bin
+# when it exists and is on PATH (matching install.sh), otherwise ~/bin.
+# Override with: make install BINDIR=/custom/bin
+BINDIR ?= $(shell \
+	if [ -d "$(HOME)/.local/bin" ] && case ":$(PATH):" in *":$(HOME)/.local/bin:"*) true;; *) false;; esac; then \
+		echo "$(HOME)/.local/bin"; \
+	else \
+		echo "$(HOME)/bin"; \
+	fi)
+
 install: build
-	mkdir -p ~/bin
-	cp bin/$(BINARY) ~/bin/$(BINARY).tmp
-	mv -f ~/bin/$(BINARY).tmp ~/bin/$(BINARY)
+	mkdir -p $(BINDIR)
+	cp bin/$(BINARY) $(BINDIR)/$(BINARY).tmp
+	mv -f $(BINDIR)/$(BINARY).tmp $(BINDIR)/$(BINARY)
