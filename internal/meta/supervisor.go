@@ -45,7 +45,7 @@ func DefaultSupervisorConfig() SupervisorConfig {
 // Supervisor keeps modules that opted in to auto_restart alive. It probes each of them
 // over the live transport and restarts the ones that stopped responding, so a crashed
 // downstream process recovers without an operator reloading the whole daemon.
-// It also hotswaps any active module whose watched binary fingerprint changed on disk.
+// It also hotswaps any active or error-state module whose watched binary fingerprint changed on disk.
 type Supervisor struct {
 	handler *Handler
 	cfg     SupervisorConfig

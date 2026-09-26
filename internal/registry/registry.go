@@ -211,6 +211,15 @@ func (r *Registry) GetModule(name string) (*domain.Module, bool) {
 	return m, ok
 }
 
+// GetClient returns the downstream client registered for a module, or nil when none
+// is registered. It lets restart capture the live client before Register replaces it.
+func (r *Registry) GetClient(name string) domain.DownstreamClient {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.clients[name]
+}
+
 // ProbeModule actively checks that a module's downstream client still responds.
 // It lists the client's tools over the live transport, so a dead or hung process
 // surfaces as an error instead of quietly failing later tool calls.
