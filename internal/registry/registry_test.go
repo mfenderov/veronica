@@ -363,3 +363,87 @@ func TestRegistryProbeModuleUnknownModule(t *testing.T) {
 		t.Fatalf("expected ErrModuleNotFound for unknown module, got: %v", err)
 	}
 }
+
+func TestRegistryWatchFlag(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	if !reg.WatchFlag("ghost") {
+		t.Fatal("expected unknown modules to default to enabled")
+	}
+
+	mod := domain.NewModule(domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   "/bin/mark42",
+	})
+	if err := reg.Register(mod, &mockClient{tools: []domain.Tool{{Name: "t", OriginModule: "mark42"}}}); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	if !reg.WatchFlag("mark42") {
+		t.Fatal("expected unset flag to default to enabled")
+	}
+
+	if err := reg.SetWatchBinary("mark42", false); err != nil {
+		t.Fatalf("SetWatchBinary failed: %v", err)
+	}
+	if reg.WatchFlag("mark42") {
+		t.Fatal("expected disabled after SetWatchBinary(false)")
+	}
+
+	if err := reg.SetWatchBinary("mark42", true); err != nil {
+		t.Fatalf("SetWatchBinary failed: %v", err)
+	}
+	if !reg.WatchFlag("mark42") {
+		t.Fatal("expected enabled after SetWatchBinary(true)")
+	}
+
+	if err := reg.SetWatchBinary("ghost", false); !errors.Is(err, domain.ErrModuleNotFound) {
+		t.Fatalf("expected ErrModuleNotFound for unknown module, got: %v", err)
+	}
+	if !reg.WatchFlag("ghost") {
+		t.Fatal("expected unknown modules to stay enabled")
+	}
+}
+
+func TestRegistryConfigSnapshotIsACopy(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	off := false
+	mod := domain.NewModule(domain.ModuleConfig{
+		Name:        "mark42",
+		Transport:   domain.TransportStdio,
+		Command:     "/bin/mark42",
+		WatchBinary: &off,
+	})
+	if err := reg.Register(mod, &mockClient{tools: []domain.Tool{{Name: "t", OriginModule: "mark42"}}}); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	snap, ok := reg.ConfigSnapshot("mark42")
+	if !ok {
+		t.Fatal("expected config snapshot for registered module")
+	}
+	if snap.WatchBinaryEnabled() {
+		t.Fatal("expected snapshot to carry the disabled flag")
+	}
+
+	if err := reg.SetWatchBinary("mark42", true); err != nil {
+		t.Fatalf("SetWatchBinary failed: %v", err)
+	}
+	if snap.WatchBinaryEnabled() {
+		t.Fatal("expected snapshot to be unaffected by later flips")
+	}
+	fresh, ok := reg.ConfigSnapshot("mark42")
+	if !ok {
+		t.Fatal("expected config snapshot for registered module")
+	}
+	if !fresh.WatchBinaryEnabled() {
+		t.Fatal("expected fresh snapshot to reflect the flip")
+	}
+
+	if _, ok := reg.ConfigSnapshot("ghost"); ok {
+		t.Fatal("expected no snapshot for unknown module")
+	}
+}

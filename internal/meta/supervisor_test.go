@@ -359,6 +359,48 @@ func TestSupervisor_ReportsWatchState(t *testing.T) {
 	}
 }
 
+// TestSetWatchBinaryConcurrentWithWatchReads guards the runtime watch flag against data
+// races: the supervisor's fingerprint path and the module summaries read it while a tool
+// call flips it. Before the locked accessors this failed under `go test -race`.
+func TestSetWatchBinaryConcurrentWithWatchReads(t *testing.T) {
+	reg, handler, _ := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mod")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{})
+
+	const iterations = 2000
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			if err := handler.SetWatchBinary(context.Background(), "mark42", i%2 == 0); err != nil {
+				t.Errorf("SetWatchBinary failed: %v", err)
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			sup.CheckOnce(context.Background())
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			if _, err := handler.ListModules(context.Background()); err != nil {
+				t.Errorf("ListModules failed: %v", err)
+			}
+		}
+	}()
+	wg.Wait()
+}
+
 // writeBinary writes version bytes to path, standing in for a module binary
 // that gets replaced between supervisor ticks.
 func writeBinary(t *testing.T, path, version string) {

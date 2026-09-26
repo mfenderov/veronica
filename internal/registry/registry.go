@@ -233,6 +233,34 @@ func (r *Registry) SetWatchBinary(name string, enabled bool) error {
 	return nil
 }
 
+// WatchFlag reports a module's runtime binary-watch flag under the registry lock, so it
+// can be read while tool calls flip it. Unknown modules report enabled, matching the
+// nil→true semantics of ModuleConfig.WatchBinaryEnabled.
+func (r *Registry) WatchFlag(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	m, ok := r.modules[name]
+	if !ok {
+		return true
+	}
+	return m.Config.WatchBinaryEnabled()
+}
+
+// ConfigSnapshot returns a copy of a module's config taken under the registry lock, so
+// callers can inspect it while runtime flags change concurrently. ok is false when no
+// module with that name is registered.
+func (r *Registry) ConfigSnapshot(name string) (domain.ModuleConfig, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	m, ok := r.modules[name]
+	if !ok {
+		return domain.ModuleConfig{}, false
+	}
+	return m.Config, true
+}
+
 // GetClient returns the downstream client registered for a module, or nil when none
 // is registered. It lets restart capture the live client before Register replaces it.
 func (r *Registry) GetClient(name string) domain.DownstreamClient {

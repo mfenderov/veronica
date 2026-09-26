@@ -165,15 +165,20 @@ func (s *Supervisor) hotswapIfNeeded(ctx context.Context, mod *domain.Module) bo
 
 // fingerprint resolves and hashes the module binary for the hotswap watch. ok is false
 // when watching does not apply (flag off, no watchable local binary) or when the file
-// cannot be resolved or read.
+// cannot be resolved or read. The config is read through the registry's locked snapshot,
+// so the watch flag can be flipped live without racing this check.
 func (s *Supervisor) fingerprint(mod *domain.Module) (string, bool) {
-	if !mod.Config.WatchBinaryEnabled() || !watchableBinary(mod.Config) {
+	cfg, ok := s.handler.registry.ConfigSnapshot(mod.Name)
+	if !ok {
 		return "", false
 	}
-	path, ok := resolveModuleBinary(mod.Config)
+	if !cfg.WatchBinaryEnabled() || !watchableBinary(cfg) {
+		return "", false
+	}
+	path, ok := resolveModuleBinary(cfg)
 	if !ok {
 		slog.Warn("supervisor cannot resolve module binary; keeping last fingerprint",
-			"module", mod.Name, "command", mod.Config.Command)
+			"module", mod.Name, "command", cfg.Command)
 		return "", false
 	}
 	print, err := hashFile(path)
