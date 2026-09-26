@@ -202,6 +202,7 @@ func (h *Handler) ToggleModule(ctx context.Context, name string, enable bool) (d
 		return domain.ToggleResult{}, err
 	}
 	if err := h.registry.Register(mod, client); err != nil {
+		_ = client.Stop(ctx)
 		return domain.ToggleResult{}, err
 	}
 
