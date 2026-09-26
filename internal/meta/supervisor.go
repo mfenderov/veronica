@@ -90,12 +90,12 @@ func (s *Supervisor) Run(ctx context.Context) error {
 }
 
 // CheckOnce probes every auto-restart module once, restarting any that is unresponsive
-// or still sitting in an error state from a failed start. Active modules whose watched
-// binary fingerprint changed since the last tick are hotswapped first.
+// or still sitting in an error state from a failed start. Modules whose watched binary
+// fingerprint changed since the last tick are hotswapped first, including ones still in
+// error from a hotswap that failed earlier.
 func (s *Supervisor) CheckOnce(ctx context.Context) {
 	for _, mod := range s.handler.registry.ListModules() {
-		if mod.Status == domain.StatusActive && s.binaryChanged(mod) {
-			s.restart(ctx, mod)
+		if s.hotswapIfNeeded(ctx, mod) {
 			continue
 		}
 
@@ -115,7 +115,13 @@ func (s *Supervisor) CheckOnce(ctx context.Context) {
 			continue
 		}
 
+		print, hashed := s.fingerprint(mod)
 		s.restart(ctx, mod)
+		if hashed && mod.Status == domain.StatusActive {
+			// The module came up on the binary hashed just before the restart;
+			// re-baseline the print so the same change is not hotswapped again.
+			s.prints[mod.Name] = print
+		}
 	}
 }
 
@@ -126,12 +132,14 @@ func (s *Supervisor) healthy(ctx context.Context, name string) bool {
 	return s.handler.registry.ProbeModule(probeCtx, name) == nil
 }
 
-// binaryChanged reports whether mod's binary contents differ from the fingerprint
-// recorded on an earlier tick. The first sighting only records the fingerprint, so
-// nothing hotswaps on daemon startup. Modules that cannot be watched keep their
-// last fingerprint and never trigger a restart.
-func (s *Supervisor) binaryChanged(mod *domain.Module) bool {
-	if !mod.Config.WatchBinaryEnabled() {
+// hotswapIfNeeded restarts mod when its watched binary fingerprint changed since the
+// last tick, reporting whether the module was already handled this tick. The first
+// sighting only records the fingerprint, so nothing hotswaps on daemon startup. Modules
+// in error are watched too, so a hotswap that failed earlier retries on the next tick
+// even without auto_restart. A failed restart restores the previous fingerprint so the
+// change stays visible to the watch.
+func (s *Supervisor) hotswapIfNeeded(ctx context.Context, mod *domain.Module) bool {
+	if mod.Status != domain.StatusActive && mod.Status != domain.StatusError {
 		return false
 	}
 	print, ok := s.fingerprint(mod)
@@ -139,14 +147,26 @@ func (s *Supervisor) binaryChanged(mod *domain.Module) bool {
 		return false
 	}
 	old, seen := s.prints[mod.Name]
+	if !seen {
+		s.prints[mod.Name] = print
+		return false
+	}
+	if old == print {
+		return false
+	}
 	s.prints[mod.Name] = print
-	return seen && old != print
+	s.restart(ctx, mod)
+	if mod.Status == domain.StatusError {
+		s.prints[mod.Name] = old
+	}
+	return true
 }
 
-// fingerprint resolves and hashes the module binary. ok is false when the module
-// has no watchable local binary or when the file cannot be resolved or read.
+// fingerprint resolves and hashes the module binary for the hotswap watch. ok is false
+// when watching does not apply (flag off, no watchable local binary) or when the file
+// cannot be resolved or read.
 func (s *Supervisor) fingerprint(mod *domain.Module) (string, bool) {
-	if !watchableBinary(mod.Config) {
+	if !mod.Config.WatchBinaryEnabled() || !watchableBinary(mod.Config) {
 		return "", false
 	}
 	path, ok := resolveModuleBinary(mod.Config)

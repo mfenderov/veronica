@@ -487,3 +487,115 @@ func TestSupervisor_TwoUpgradesOneTickRestartsOnce(t *testing.T) {
 		t.Fatalf("expected the restart to land on the latest fingerprint, got %d restarts", factory.createCount())
 	}
 }
+
+func TestSupervisor_FailedHotswapRetriesNextTick(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context()) // record v1
+
+	factory.createEr = errors.New("spawn failed")
+	writeBinary(t, bin, "v2")
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected one hotswap attempt, got %d", factory.createCount())
+	}
+	mod, _ := reg.GetModule("mark42")
+	if mod.Status != domain.StatusError {
+		t.Fatalf("expected module in error after failed hotswap, got %s", mod.Status)
+	}
+
+	// The print was rolled back to v1, so the next tick retries even without auto_restart.
+	factory.createEr = nil
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 2 {
+		t.Fatalf("expected the hotswap to retry once the factory works, got %d", factory.createCount())
+	}
+	mod, _ = reg.GetModule("mark42")
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected retried module to be active, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 2 {
+		t.Fatalf("expected no further restart after the retry, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_ErrorRecoveryOnNewBinaryRestartsOnce(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	client := mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:        "mark42",
+		Transport:   domain.TransportStdio,
+		Command:     bin,
+		AutoRestart: true,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context()) // record v1
+
+	// The module stops responding and its restart fails, leaving it in error.
+	factory.createEr = errors.New("spawn failed")
+	client.markUnhealthy()
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected one failed restart attempt, got %d", factory.createCount())
+	}
+
+	// The binary changes to v2 while the module sits in error. Recovery must
+	// restart exactly once and must not hotswap again for the same change.
+	writeBinary(t, bin, "v2")
+	factory.createEr = nil
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 2 {
+		t.Fatalf("expected exactly one recovery restart, got %d", factory.createCount())
+	}
+	mod, _ := reg.GetModule("mark42")
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected recovered module to be active, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 2 {
+		t.Fatalf("expected no second restart for the same binary change, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_HotswapAtMostOneRestartPerTick(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:        "mark42",
+		Transport:   domain.TransportStdio,
+		Command:     bin,
+		AutoRestart: true,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context()) // record v1
+
+	// A failing hotswap must not fall through to a second restart attempt in
+	// the same tick, even for an auto_restart module.
+	factory.createEr = errors.New("spawn failed")
+	writeBinary(t, bin, "v2")
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected exactly one restart attempt per tick, got %d", factory.createCount())
+	}
+}
