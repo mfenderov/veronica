@@ -39,6 +39,10 @@ func resolveModuleBinary(cfg domain.ModuleConfig) (string, bool) {
 		}
 		abs = found
 	}
+	abs, err := filepath.Abs(abs)
+	if err != nil {
+		return "", false
+	}
 	info, err := os.Stat(abs)
 	if err != nil || info.IsDir() {
 		return "", false
