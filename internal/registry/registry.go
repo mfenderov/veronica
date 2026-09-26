@@ -73,14 +73,22 @@ func (r *Registry) Register(mod *domain.Module, client domain.DownstreamClient) 
 }
 
 // RegisterError registers a module that failed to start, preserving its presence in the registry with error status.
+// A client still registered for the module — the serving child of a failed restart —
+// is stopped and dropped like Unregister does, so a failed restart cannot orphan it.
 func (r *Registry) RegisterError(mod *domain.Module, err error) {
 	r.mu.Lock()
+	client := r.clients[mod.Name]
 	r.modules[mod.Name] = mod
 	delete(r.clients, mod.Name)
 	mod.MarkError(err.Error())
 	r.rebuildCatalogLocked()
 	r.mu.Unlock()
 
+	if client != nil {
+		if stopErr := client.Stop(context.Background()); stopErr != nil {
+			slog.Warn("failed to stop client of errored module", "module", mod.Name, "error", stopErr)
+		}
+	}
 	r.notifyListeners()
 }
 

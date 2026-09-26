@@ -4,6 +4,7 @@ package meta
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"strings"
 	"time"
@@ -258,6 +259,8 @@ func (h *Handler) restartModuleClient(ctx context.Context, mod *domain.Module) e
 		return err
 	}
 	if err := client.Start(ctx); err != nil {
+		// Best effort: a Start that fails after spawning must not leak the child.
+		_ = client.Stop(ctx)
 		return err
 	}
 	if err := h.registry.Register(mod, client); err != nil {
@@ -265,7 +268,9 @@ func (h *Handler) restartModuleClient(ctx context.Context, mod *domain.Module) e
 		return err
 	}
 	if old != nil {
-		_ = old.Stop(ctx)
+		if err := old.Stop(ctx); err != nil {
+			slog.Warn("failed to stop old module client after restart", "module", mod.Name, "error", err)
+		}
 	}
 	return nil
 }
