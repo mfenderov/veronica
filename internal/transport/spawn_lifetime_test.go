@@ -5,6 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -102,4 +105,102 @@ func main() {
 	if len(res.Content) == 0 || res.Content[0].Text != "still serving" {
 		t.Fatalf("unexpected result from surviving child: %+v", res)
 	}
+}
+
+// TestDownstreamStdioFailedInitializeDoesNotLeakChild pins the cleanup duty of
+// a failed Start. The spawn context is never cancelled, so a child spawned for
+// a handshake that fails must be torn down by Start itself: deploy (tools.go
+// Start error path) and toggle do not Stop a client whose Start failed.
+func TestDownstreamStdioFailedInitializeDoesNotLeakChild(t *testing.T) {
+	t.Parallel()
+
+	// Build a stub that spawns, publishes its PID, and never answers
+	// initialize: the handshake fails when the caller's context expires.
+	tmpDir := t.TempDir()
+	binPath := filepath.Join(tmpDir, "mute-stdio-mcp")
+	pidFile := filepath.Join(tmpDir, "child.pid")
+
+	srcCode := `package main
+
+import (
+	"io"
+	"os"
+	"strconv"
+)
+
+func main() {
+	if err := os.WriteFile(os.Args[1], []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		os.Exit(1)
+	}
+	// Serve no MCP at all. Exit only when stdin closes, like a stdio MCP server.
+	_, _ = io.Copy(io.Discard, os.Stdin)
+}
+`
+	srcFile := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(srcFile, []byte(srcCode), 0o600); err != nil {
+		t.Fatalf("failed to write mock src: %v", err)
+	}
+
+	cmd := exec.Command("go", "build", "-o", binPath, srcFile)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to build mock binary: %v, out: %s", err, string(out))
+	}
+
+	cfg := domain.ModuleConfig{
+		Name:      "leak-test",
+		Transport: domain.TransportStdio,
+		Command:   binPath,
+		Args:      []string{pidFile},
+	}
+
+	downstream, err := transport.NewDownstreamClient(t.Context(), cfg, nil)
+	if err != nil {
+		t.Fatalf("NewDownstreamClient failed: %v", err)
+	}
+	t.Cleanup(func() {
+		// Never leave a child behind on a failing run.
+		_ = downstream.Stop(context.Background())
+	})
+
+	// A bounded context, like a tool call's: the handshake times out because
+	// the stub never answers initialize.
+	startCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := downstream.Start(startCtx); err == nil {
+		t.Fatal("Start succeeded against a stub that never answers initialize")
+	}
+
+	pid := readChildPID(t, pidFile)
+	if !waitForChildExit(pid, 2*time.Second) {
+		t.Fatalf("leaked child process %d still running after failed Start", pid)
+	}
+}
+
+// readChildPID polls until the stub has published its PID file and returns the PID.
+func readChildPID(t *testing.T, path string) int {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(path); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 {
+				return pid
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("stub never wrote its PID file %s", path)
+	return 0
+}
+
+// waitForChildExit polls until pid no longer refers to a live process, up to timeout.
+func waitForChildExit(pid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		proc, err := os.FindProcess(pid)
+		if err != nil || proc.Signal(syscall.Signal(0)) != nil {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
 }
