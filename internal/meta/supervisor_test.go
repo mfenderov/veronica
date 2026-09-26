@@ -3,6 +3,8 @@ package meta_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -292,5 +294,196 @@ func TestSupervisorRunProbesModulesOnInterval(t *testing.T) {
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("expected clean shutdown, got: %v", err)
+	}
+}
+
+// writeBinary writes version bytes to path, standing in for a module binary
+// that gets replaced between supervisor ticks.
+func writeBinary(t *testing.T, path, version string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(version), 0o755); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+}
+
+func TestSupervisor_RestartsOnFingerprintChange(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context()) // first tick only records the fingerprint
+	if factory.createCount() != 0 {
+		t.Fatalf("expected first tick to record the fingerprint without restarting, got %d restarts", factory.createCount())
+	}
+
+	writeBinary(t, bin, "v2") // replace the binary with new bytes
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected exactly one restart after fingerprint change, got %d", factory.createCount())
+	}
+	mod, ok := reg.GetModule("mark42")
+	if !ok {
+		t.Fatal("expected module to stay registered after hotswap")
+	}
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected hotswapped module to be active, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+}
+
+func TestSupervisor_NoRestartOnSameContent(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+
+	later := time.Now().Add(2 * time.Hour)
+	if err := os.Chtimes(bin, later, later); err != nil {
+		t.Fatalf("Chtimes failed: %v", err)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 0 {
+		t.Fatalf("expected no restart for same content with new mtime, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_DeletedBinaryKeepsModule(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+
+	if err := os.Remove(bin); err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 0 {
+		t.Fatalf("expected no restart while the binary is missing, got %d", factory.createCount())
+	}
+	mod, ok := reg.GetModule("mark42")
+	if !ok {
+		t.Fatal("expected module to stay registered while the binary is missing")
+	}
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected module to stay active while the binary is missing, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+
+	// The old fingerprint is kept, so a binary that comes back changed still hotswaps.
+	writeBinary(t, bin, "v2")
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected one restart after the changed binary reappeared, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_WatchDisabledSkips(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	off := false
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:        "mark42",
+		Transport:   domain.TransportStdio,
+		Command:     bin,
+		WatchBinary: &off,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+
+	writeBinary(t, bin, "v2")
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 0 {
+		t.Fatalf("expected no restart with watch_binary disabled, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_ShimNeverWatched(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   "npx",
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+	sup.CheckOnce(t.Context())
+
+	if factory.createCount() != 0 {
+		t.Fatalf("expected shim command to never restart, got %d", factory.createCount())
+	}
+	mod, ok := reg.GetModule("mark42")
+	if !ok {
+		t.Fatal("expected module to stay registered")
+	}
+	if mod.Status != domain.StatusActive || mod.ErrorMessage != "" {
+		t.Fatalf("expected shim module to stay active without errors, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+}
+
+func TestSupervisor_TwoUpgradesOneTickRestartsOnce(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+
+	// Two upgrades land inside a single tick window.
+	for _, version := range []string{"v2", "v3"} {
+		writeBinary(t, bin, version)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected exactly one restart for two upgrades in one tick, got %d", factory.createCount())
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected the restart to land on the latest fingerprint, got %d restarts", factory.createCount())
 	}
 }
