@@ -219,6 +219,20 @@ func (r *Registry) GetModule(name string) (*domain.Module, bool) {
 	return m, ok
 }
 
+// SetWatchBinary flips a module's runtime binary-watch flag. The change is runtime-only
+// and never touches the persisted config; the supervisor honors it from its next tick.
+func (r *Registry) SetWatchBinary(name string, enabled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	m, ok := r.modules[name]
+	if !ok {
+		return domain.ErrModuleNotFound
+	}
+	m.Config.WatchBinary = &enabled
+	return nil
+}
+
 // GetClient returns the downstream client registered for a module, or nil when none
 // is registered. It lets restart capture the live client before Register replaces it.
 func (r *Registry) GetClient(name string) domain.DownstreamClient {

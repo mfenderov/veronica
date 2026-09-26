@@ -55,6 +55,18 @@ type ModuleSummary struct {
 	Target    string        `json:"target"`
 	Tools     []string      `json:"tools"`
 	Error     string        `json:"error,omitempty"`
+	// Hotswap watch visibility, mirroring the gateway's runtime state. The watch
+	// flag is runtime-only and never persisted to the yaml config.
+	WatchBinary *bool  `json:"watch_binary,omitempty"`
+	WatchStale  bool   `json:"watch_stale,omitempty"`
+	Version     string `json:"version,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+// WatchBinaryEnabled reports whether binary-change watching applies to this module.
+// Unset (nil) means enabled; explicit false opts out.
+func (s ModuleSummary) WatchBinaryEnabled() bool {
+	return watchBinaryEnabled(s.WatchBinary)
 }
 
 // GatewayStatus represents runtime health and resource metrics of the Veronica gateway pod.
@@ -79,6 +91,7 @@ type PodService interface {
 	DeployModule(ctx context.Context, p DeployParams) (DeployResult, error)
 	RecallModule(ctx context.Context, name string) (RecallResult, error)
 	ToggleModule(ctx context.Context, name string, enable bool) (ToggleResult, error)
+	SetWatchBinary(ctx context.Context, name string, enable bool) error
 	ReauthModule(ctx context.Context, name string) (ReauthResult, error)
 	RestartDaemon(ctx context.Context) (RestartResult, error)
 }

@@ -69,6 +69,16 @@ func (m *mockPodService) RecentTraces(ctx context.Context, limit int) ([]domain.
 	return nil, nil
 }
 
+func (m *mockPodService) SetWatchBinary(ctx context.Context, name string, enable bool) error {
+	for i := range m.modules {
+		if m.modules[i].Name == name {
+			val := enable
+			m.modules[i].WatchBinary = &val
+		}
+	}
+	return nil
+}
+
 func TestTUI_Lifecycle(t *testing.T) {
 	t.Parallel()
 

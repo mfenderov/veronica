@@ -180,6 +180,55 @@ func TestMetaToolsLifecycle(t *testing.T) {
 	}
 }
 
+// TestSetWatchBinaryFlipsRuntimeFlag verifies the watch flag flips live at runtime and
+// shows up in module summaries, without any persisted config change.
+func TestSetWatchBinaryFlipsRuntimeFlag(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	store, _ := auth.NewFileStore(t.TempDir() + "/auth.json")
+	factory := &mockClientFactory{}
+	handler := meta.NewHandler(reg, store, factory)
+
+	ctx := t.Context()
+	if _, err := handler.DeployModule(ctx, meta.DeployParams{
+		Name:      "postgres-cart",
+		Transport: "stdio",
+		Command:   "/usr/local/bin/pg-mcp",
+	}); err != nil {
+		t.Fatalf("DeployModule failed: %v", err)
+	}
+
+	assertWatchEnabled := func(want bool) {
+		t.Helper()
+		mods, err := handler.ListModules(ctx)
+		if err != nil {
+			t.Fatalf("ListModules failed: %v", err)
+		}
+		if len(mods) != 1 {
+			t.Fatalf("expected 1 module, got %d", len(mods))
+		}
+		if mods[0].WatchBinaryEnabled() != want {
+			t.Fatalf("expected WatchBinaryEnabled %v, got %v (flag %+v)",
+				want, mods[0].WatchBinaryEnabled(), mods[0].WatchBinary)
+		}
+	}
+
+	if err := handler.SetWatchBinary(ctx, "postgres-cart", false); err != nil {
+		t.Fatalf("SetWatchBinary failed: %v", err)
+	}
+	assertWatchEnabled(false)
+
+	if err := handler.SetWatchBinary(ctx, "postgres-cart", true); err != nil {
+		t.Fatalf("SetWatchBinary failed: %v", err)
+	}
+	assertWatchEnabled(true)
+
+	if err := handler.SetWatchBinary(ctx, "ghost", false); !errors.Is(err, domain.ErrModuleNotFound) {
+		t.Fatalf("expected ErrModuleNotFound for unknown module, got %v", err)
+	}
+}
+
 func TestMetaToolsToggle(t *testing.T) {
 	t.Parallel()
 

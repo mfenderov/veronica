@@ -1,7 +1,10 @@
 package config_test
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mfenderov/veronica/internal/config"
@@ -58,6 +61,92 @@ func TestConfigLoadAndSave(t *testing.T) {
 	reloaded, _ := config.Load(cfgPath)
 	if _, exists := reloaded.GetModule("test-mod"); exists {
 		t.Fatal("expected test-mod to be removed")
+	}
+}
+
+// TestWatchBinaryRoundTrip pins the nil-vs-false distinction for watch_binary across
+// the yaml and json tag paths: an explicit false must survive marshaling, while unset
+// must stay nil so it keeps defaulting to on.
+func TestWatchBinaryRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+
+	off := false
+	cfg := config.DefaultConfig()
+	cfg.AddModule(domain.ModuleConfig{
+		Name:        "explicit-off",
+		Transport:   domain.TransportStdio,
+		Command:     "/bin/a",
+		WatchBinary: &off,
+	})
+	cfg.AddModule(domain.ModuleConfig{
+		Name:      "unset",
+		Transport: domain.TransportStdio,
+		Command:   "/bin/b",
+	})
+
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// The explicit false must be written out verbatim, not dropped by omitempty.
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	if !strings.Contains(string(data), "watch_binary: false") {
+		t.Fatalf("expected explicit watch_binary: false in yaml, got:\n%s", data)
+	}
+
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	gotOff, exists := loaded.GetModule("explicit-off")
+	if !exists {
+		t.Fatal("expected explicit-off to exist in loaded config")
+	}
+	if gotOff.WatchBinary == nil || *gotOff.WatchBinary {
+		t.Fatalf("expected explicit false to survive yaml round trip, got %+v", gotOff.WatchBinary)
+	}
+	if gotOff.WatchBinaryEnabled() {
+		t.Fatal("expected watch disabled after yaml round trip of explicit false")
+	}
+
+	gotUnset, exists := loaded.GetModule("unset")
+	if !exists {
+		t.Fatal("expected unset to exist in loaded config")
+	}
+	if gotUnset.WatchBinary != nil {
+		t.Fatalf("expected unset to stay nil after yaml round trip, got %+v", gotUnset.WatchBinary)
+	}
+	if !gotUnset.WatchBinaryEnabled() {
+		t.Fatal("expected unset to keep defaulting to on")
+	}
+
+	// The json tags must keep the same nil-vs-false distinction.
+	for _, tc := range []struct {
+		name string
+		mod  domain.ModuleConfig
+	}{
+		{name: "explicit-off", mod: gotOff},
+		{name: "unset", mod: gotUnset},
+	} {
+		b, err := json.Marshal(tc.mod)
+		if err != nil {
+			t.Fatalf("Marshal %s failed: %v", tc.name, err)
+		}
+		var back domain.ModuleConfig
+		if err := json.Unmarshal(b, &back); err != nil {
+			t.Fatalf("Unmarshal %s failed: %v", tc.name, err)
+		}
+		if back.WatchBinaryEnabled() != tc.mod.WatchBinaryEnabled() {
+			t.Fatalf("expected json round trip to keep watch flag of %s, got enabled=%v for %s",
+				tc.name, back.WatchBinaryEnabled(), b)
+		}
 	}
 }
 

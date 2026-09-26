@@ -154,6 +154,14 @@ func (c *RemotePodClient) ToggleModule(ctx context.Context, name string, enable 
 	return result, nil
 }
 
+// SetWatchBinary requests the remote Veronica gateway to flip a module's runtime
+// binary-watch flag. The change is runtime-only and is not persisted to config.
+func (c *RemotePodClient) SetWatchBinary(ctx context.Context, name string, enable bool) error {
+	args := map[string]any{"name": name, "enable": enable}
+	_, err := c.callTool(ctx, "veronica_set_watch_binary", args)
+	return err
+}
+
 // ReauthModule requests the remote Veronica gateway to re-authenticate an OAuth module.
 func (c *RemotePodClient) ReauthModule(ctx context.Context, name string) (domain.ReauthResult, error) {
 	args := map[string]any{"name": name}
