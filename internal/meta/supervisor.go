@@ -113,8 +113,12 @@ func (s *Supervisor) CheckOnce(ctx context.Context) {
 		}
 
 		print, hashed := s.fingerprint(mod)
-		s.restart(ctx, mod)
-		if hashed && mod.Status == domain.StatusActive {
+		if err := s.restart(ctx, mod); err != nil {
+			// Health-triggered restarts report the failure on the module. The module
+			// was already unresponsive or errored, so its old client is stopped too.
+			slog.Error("supervisor failed to restart module", "module", mod.Name, "error", err)
+			s.handler.registry.RegisterError(mod, fmt.Errorf("auto-restart failed: %w", err))
+		} else if hashed && mod.Status == domain.StatusActive {
 			// The module came up on the binary hashed just before the restart;
 			// re-baseline the print so the same change is not hotswapped again.
 			s.handler.recordWatch(mod.Name, print, false)
@@ -134,8 +138,8 @@ func (s *Supervisor) healthy(ctx context.Context, name string) bool {
 // sighting only records the fingerprint, so nothing hotswaps on daemon startup. Modules
 // in error are watched too, so a hotswap that failed earlier retries on the next tick
 // even without auto_restart. A mismatch marks the module stale until a swap lands on the
-// new binary; a failed restart keeps the previous fingerprint so the change stays
-// visible to the watch.
+// new binary; a failed swap keeps the old child serving and the previous fingerprint, so
+// the module is never left dead and the change stays visible to the watch.
 func (s *Supervisor) hotswapIfNeeded(ctx context.Context, mod *domain.Module) bool {
 	if mod.Status != domain.StatusActive && mod.Status != domain.StatusError {
 		return false
@@ -156,8 +160,17 @@ func (s *Supervisor) hotswapIfNeeded(ctx context.Context, mod *domain.Module) bo
 	}
 	// Mismatch seen: the module stays stale until a swap lands on the new binary.
 	s.handler.recordWatch(mod.Name, rec.baseline, true)
-	s.restart(ctx, mod)
+	if err := s.restart(ctx, mod); err != nil {
+		// A failed swap must never kill a healthy module: the old child keeps
+		// serving and the old baseline stays recorded, so the change remains
+		// visible and the next tick retries (spec Goal 3).
+		slog.Warn("hotswap failed; module keeps serving the old binary, retrying next tick",
+			"module", mod.Name, "error", err)
+		return true
+	}
 	if mod.Status == domain.StatusActive {
+		// The swap landed on the new binary. Anything else keeps the old
+		// baseline, so a failed swap stays visible to the next tick.
 		s.handler.recordWatch(mod.Name, print, false)
 	}
 	return true
@@ -201,7 +214,10 @@ func watchableBinary(cfg domain.ModuleConfig) bool {
 	return !shimCommands[filepath.Base(cmd)]
 }
 
-func (s *Supervisor) restart(ctx context.Context, mod *domain.Module) {
+// restart stops and respawns mod's client, reporting failure without touching module
+// state: restartModuleClient leaves the old client registered and serving on any
+// failure, so each caller decides what a failed restart means for the module.
+func (s *Supervisor) restart(ctx context.Context, mod *domain.Module) error {
 	slog.Warn("supervisor restarting module",
 		"module", mod.Name,
 		"status", mod.Status,
@@ -212,10 +228,9 @@ func (s *Supervisor) restart(ctx context.Context, mod *domain.Module) {
 	defer cancel()
 
 	if err := s.handler.restartModuleClient(restartCtx, mod); err != nil {
-		s.handler.registry.RegisterError(mod, fmt.Errorf("auto-restart failed: %w", err))
-		slog.Error("supervisor failed to restart module", "module", mod.Name, "error", err)
-		return
+		return err
 	}
 
 	slog.Info("supervisor restarted module", "module", mod.Name)
+	return nil
 }

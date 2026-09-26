@@ -363,7 +363,7 @@ func sleepChildren() []int {
 	return pids
 }
 
-func TestFailedHotswapRetiresOldChild(t *testing.T) {
+func TestFailedHotswapKeepsOldChild(t *testing.T) {
 	t.Parallel()
 
 	reg, handler, factory := newRestartFixture(t)
@@ -382,16 +382,19 @@ func TestFailedHotswapRetiresOldChild(t *testing.T) {
 	writeStubBinary(t, bin, "v2") // the binary changed on disk
 	factory.markBroken("mark42")  // ... and the replacement cannot start
 
-	sup.CheckOnce(t.Context()) // the hotswap fails and the module lands in error
+	sup.CheckOnce(t.Context()) // the hotswap fails; the old child must survive it
 
 	mod, ok := reg.GetModule("mark42")
 	if !ok {
 		t.Fatal("expected module to stay registered after a failed hotswap")
 	}
-	if mod.Status != domain.StatusError {
-		t.Fatalf("expected module in error after failed hotswap, got %s (%s)", mod.Status, mod.ErrorMessage)
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected module to stay active after failed hotswap, got %s (%s)", mod.Status, mod.ErrorMessage)
 	}
-	assertProcessGone(t, oldPID, "old stub server") // retired, not orphaned
+	if err := reg.ProbeModule(t.Context(), "mark42"); err != nil {
+		t.Fatalf("expected the old client to keep serving after failed hotswap: %v", err)
+	}
+	assertProcessAlive(t, oldPID, "old stub server") // kept serving, not killed
 }
 
 func TestRestartModuleClient_StartFailureLeavesNoChild(t *testing.T) {
