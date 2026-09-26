@@ -45,6 +45,7 @@ type ModuleConfig struct {
 	OAuth       *OAuthClientConfig `json:"oauth,omitempty" yaml:"oauth,omitempty"`
 	Disabled    bool               `json:"disabled,omitempty" yaml:"disabled,omitempty"`
 	AutoRestart bool               `json:"auto_restart,omitempty" yaml:"auto_restart,omitempty"`
+	WatchBinary *bool              `json:"watch_binary,omitempty" yaml:"watch_binary,omitempty"`
 }
 
 var (
@@ -84,6 +85,15 @@ func (c ModuleConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// WatchBinaryEnabled reports whether binary-change watching applies.
+// Unset (nil) means enabled; explicit false opts out.
+func (c ModuleConfig) WatchBinaryEnabled() bool {
+	if c.WatchBinary == nil {
+		return true
+	}
+	return *c.WatchBinary
 }
 
 // Tool represents an MCP tool definition with its schema and origin module metadata.
