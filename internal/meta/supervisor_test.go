@@ -592,7 +592,7 @@ func TestSupervisor_TwoUpgradesOneTickRestartsOnce(t *testing.T) {
 	}
 }
 
-func TestSupervisor_FailedHotswapRetriesNextTick(t *testing.T) {
+func TestSupervisor_FailedHotswapKeepsOldChildAndRetries(t *testing.T) {
 	t.Parallel()
 
 	reg, handler, factory := newSupervisorFixture(t)
@@ -613,12 +613,18 @@ func TestSupervisor_FailedHotswapRetriesNextTick(t *testing.T) {
 	if factory.createCount() != 1 {
 		t.Fatalf("expected one hotswap attempt, got %d", factory.createCount())
 	}
+
+	// A failed hotswap must never kill a healthy module: the old child keeps
+	// serving and the old fingerprint stays recorded (spec Goal 3).
 	mod, _ := reg.GetModule("mark42")
-	if mod.Status != domain.StatusError {
-		t.Fatalf("expected module in error after failed hotswap, got %s", mod.Status)
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected module to stay active after failed hotswap, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+	if err := reg.ProbeModule(t.Context(), "mark42"); err != nil {
+		t.Fatalf("expected the old child to keep serving after failed hotswap, got %v", err)
 	}
 
-	// The print was rolled back to v1, so the next tick retries even without auto_restart.
+	// The fingerprint was rolled back, so the next tick retries even without auto_restart.
 	factory.createEr = nil
 	sup.CheckOnce(t.Context())
 	if factory.createCount() != 2 {
