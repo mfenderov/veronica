@@ -60,7 +60,12 @@ func (a *DownstreamAdapter) Start(ctx context.Context) error {
 
 	a.mcpClient = mcpClient
 
-	if err := a.mcpClient.Start(ctx); err != nil {
+	// Spawn the transport without cancellation: mcp-go's stdio transport runs
+	// exec.CommandContext(ctx), so a cancelled request context would kill the
+	// child the moment the call returns. Values are kept; only lifetime is
+	// decoupled. The handshake below still honors the caller's context.
+	spawnCtx := context.WithoutCancel(ctx)
+	if err := a.mcpClient.Start(spawnCtx); err != nil {
 		a.status = domain.StatusError
 		return fmt.Errorf("failed to start downstream transport %s: %w", a.config.Name, err)
 	}
