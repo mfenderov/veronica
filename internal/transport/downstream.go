@@ -82,6 +82,10 @@ func (a *DownstreamAdapter) Start(ctx context.Context) error {
 	_, err = a.mcpClient.Initialize(ctx, initReq)
 	if err != nil {
 		a.status = domain.StatusError
+		// The spawn context is never cancelled, so a failed handshake must tear
+		// the transport down here or the running child leaks: callers such as
+		// deploy and toggle do not Stop a client whose Start failed.
+		_ = a.mcpClient.Close()
 		return fmt.Errorf("failed to initialize downstream %s: %w", a.config.Name, err)
 	}
 
