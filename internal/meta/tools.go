@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/mfenderov/veronica/internal/domain"
@@ -163,12 +164,22 @@ func (h *Handler) ToggleModule(ctx context.Context, name string, enable bool) (d
 	}, nil
 }
 
-// RestartDaemon gracefully reloads all active downstream MCP modules.
+// RestartDaemon gracefully reloads all active downstream MCP modules, reporting any
+// module that failed to reload instead of swallowing the error.
 func (h *Handler) RestartDaemon(ctx context.Context) (domain.RestartResult, error) {
+	var failed []string
 	for _, mod := range h.registry.ListModules() {
 		if mod.Status == domain.StatusActive {
-			_ = h.restartModuleClient(ctx, mod)
+			if err := h.restartModuleClient(ctx, mod); err != nil {
+				failed = append(failed, fmt.Sprintf("%s: %v", mod.Name, err))
+			}
 		}
+	}
+	if len(failed) > 0 {
+		return domain.RestartResult{
+			Success: false,
+			Message: "some modules failed to reload: " + strings.Join(failed, "; "),
+		}, nil
 	}
 	return domain.RestartResult{
 		Success: true,
@@ -236,7 +247,12 @@ func (h *Handler) canRefreshToken(oauthCfg domain.OAuthClientConfig, tok *domain
 	return tok.RefreshToken != "" && h.tokenProvider != nil && oauthCfg.TokenURL != ""
 }
 
+// restartModuleClient replaces a module's downstream client with a fresh one. The old
+// client is captured before Register (which overwrites the registry entry) and only
+// stopped once the new client is serving, so any failure along the way leaves the old
+// client registered and serving.
 func (h *Handler) restartModuleClient(ctx context.Context, mod *domain.Module) error {
+	old := h.registry.GetClient(mod.Name)
 	client, err := h.factory.CreateClient(ctx, mod.Config)
 	if err != nil {
 		return err
@@ -244,7 +260,14 @@ func (h *Handler) restartModuleClient(ctx context.Context, mod *domain.Module) e
 	if err := client.Start(ctx); err != nil {
 		return err
 	}
-	return h.registry.Register(mod, client)
+	if err := h.registry.Register(mod, client); err != nil {
+		_ = client.Stop(ctx)
+		return err
+	}
+	if old != nil {
+		_ = old.Stop(ctx)
+	}
+	return nil
 }
 
 // RecentTraces returns recent tool execution traces from the registry up to limit.
