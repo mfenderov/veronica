@@ -49,9 +49,6 @@ func DefaultSupervisorConfig() SupervisorConfig {
 type Supervisor struct {
 	handler *Handler
 	cfg     SupervisorConfig
-	// prints holds the last-seen binary fingerprint per module name, so a changed
-	// binary triggers exactly one hotswap restart per change.
-	prints map[string]string
 }
 
 // NewSupervisor builds a Supervisor, filling in defaults for any unset timing field.
@@ -66,7 +63,7 @@ func NewSupervisor(handler *Handler, cfg SupervisorConfig) *Supervisor {
 	if cfg.RestartTimeout <= 0 {
 		cfg.RestartTimeout = defaults.RestartTimeout
 	}
-	return &Supervisor{handler: handler, cfg: cfg, prints: make(map[string]string)}
+	return &Supervisor{handler: handler, cfg: cfg}
 }
 
 // Config returns the effective supervision settings.
@@ -120,7 +117,7 @@ func (s *Supervisor) CheckOnce(ctx context.Context) {
 		if hashed && mod.Status == domain.StatusActive {
 			// The module came up on the binary hashed just before the restart;
 			// re-baseline the print so the same change is not hotswapped again.
-			s.prints[mod.Name] = print
+			s.handler.recordWatch(mod.Name, print, false)
 		}
 	}
 }
@@ -136,8 +133,9 @@ func (s *Supervisor) healthy(ctx context.Context, name string) bool {
 // last tick, reporting whether the module was already handled this tick. The first
 // sighting only records the fingerprint, so nothing hotswaps on daemon startup. Modules
 // in error are watched too, so a hotswap that failed earlier retries on the next tick
-// even without auto_restart. A failed restart restores the previous fingerprint so the
-// change stays visible to the watch.
+// even without auto_restart. A mismatch marks the module stale until a swap lands on the
+// new binary; a failed restart keeps the previous fingerprint so the change stays
+// visible to the watch.
 func (s *Supervisor) hotswapIfNeeded(ctx context.Context, mod *domain.Module) bool {
 	if mod.Status != domain.StatusActive && mod.Status != domain.StatusError {
 		return false
@@ -146,18 +144,21 @@ func (s *Supervisor) hotswapIfNeeded(ctx context.Context, mod *domain.Module) bo
 	if !ok {
 		return false
 	}
-	old, seen := s.prints[mod.Name]
+	rec, seen := s.handler.watchState(mod.Name)
 	if !seen {
-		s.prints[mod.Name] = print
+		s.handler.recordWatch(mod.Name, print, false)
 		return false
 	}
-	if old == print {
+	if rec.baseline == print {
+		// The binary matches the running baseline again, so no swap is pending.
+		s.handler.recordWatch(mod.Name, rec.baseline, false)
 		return false
 	}
-	s.prints[mod.Name] = print
+	// Mismatch seen: the module stays stale until a swap lands on the new binary.
+	s.handler.recordWatch(mod.Name, rec.baseline, true)
 	s.restart(ctx, mod)
-	if mod.Status == domain.StatusError {
-		s.prints[mod.Name] = old
+	if mod.Status == domain.StatusActive {
+		s.handler.recordWatch(mod.Name, print, false)
 	}
 	return true
 }

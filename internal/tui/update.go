@@ -93,16 +93,16 @@ func (m Model) withModulesError(err error) Model {
 func (m Model) withModulesSnapshot(mods []domain.ModuleSummary) Model {
 	selectedName := m.currentSelectedName()
 	sorted := sortModules(mods)
-	m.recordModuleDeltas(sorted)
+	m = m.recordModuleDeltas(sorted)
 	m.prevModules = append([]domain.ModuleSummary(nil), sorted...)
 	m.modules = sorted
 	m.cursor = m.findCursorForName(selectedName)
 	return m
 }
 
-func (m Model) recordModuleDeltas(sorted []domain.ModuleSummary) {
+func (m Model) recordModuleDeltas(sorted []domain.ModuleSummary) Model {
 	if m.prevModules == nil {
-		return
+		return m
 	}
 	src := m.eventsSrc
 	if src == nil {
@@ -111,6 +111,7 @@ func (m Model) recordModuleDeltas(sorted []domain.ModuleSummary) {
 	for _, ev := range src.Deltas(m.prevModules, sorted) {
 		m = m.appendEvent(ev)
 	}
+	return m
 }
 
 func (m Model) markModulesOk() Model {
@@ -210,6 +211,10 @@ func (m Model) handleActionKey(key string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case " ":
 		return m.handleToggleKey()
+	case "W":
+		return m.handleWatchKey()
+	case "P":
+		return m.handlePauseKey()
 	case "e":
 		return m.enterEditMode(), nil
 	case "A", "ctrl+a":
@@ -260,6 +265,40 @@ func (m Model) handleToggleKey() (tea.Model, tea.Cmd) {
 	}
 	mod := m.modules[m.cursor]
 	return m, m.toggleModuleCmd(mod.Name, mod.Status)
+}
+
+// handleWatchKey flips the selected module's runtime binary-watch flag.
+func (m Model) handleWatchKey() (tea.Model, tea.Cmd) {
+	if m.watchPaused {
+		m.statusMsg = "Watching paused — press P to resume"
+		m.statusIsError = false
+		return m, nil
+	}
+	if len(m.modules) == 0 || m.cursor >= len(m.modules) {
+		return m, nil
+	}
+	mod := m.modules[m.cursor]
+	return m, m.setWatchCmd(mod.Name, !mod.WatchBinaryEnabled())
+}
+
+// handlePauseKey pauses binary watching for every module or resumes it, restoring the
+// per-module flags that were set before the pause.
+func (m Model) handlePauseKey() (tea.Model, tea.Cmd) {
+	if m.watchPaused {
+		m.watchPaused = false
+		flags := m.watchPrior
+		m.watchPrior = nil
+		return m, m.applyWatchFlagsCmd(flags, "Watching resumed")
+	}
+	m.watchPaused = true
+	prior := make(map[string]bool, len(m.modules))
+	off := make(map[string]bool, len(m.modules))
+	for _, mod := range m.modules {
+		prior[mod.Name] = mod.WatchBinaryEnabled()
+		off[mod.Name] = false
+	}
+	m.watchPrior = prior
+	return m, m.applyWatchFlagsCmd(off, "Watching paused")
 }
 
 func (m Model) handleRecallKey() (tea.Model, tea.Cmd) {

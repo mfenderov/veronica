@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mfenderov/veronica/internal/domain"
@@ -26,6 +27,17 @@ type Handler struct {
 	factory       ClientFactory
 	commandPolicy CommandPolicy
 	startedAt     time.Time
+	// watch holds the supervisor's per-module binary watch state, shared so
+	// module summaries can expose it to clients like the TUI.
+	watchMu sync.Mutex
+	watch   map[string]watchRecord
+}
+
+// watchRecord is the binary watch state of one module: the fingerprint its running
+// child was started from, and whether a binary change was seen but not swapped in yet.
+type watchRecord struct {
+	baseline string
+	stale    bool
 }
 
 // NewHandler creates a new Handler with the given registry, auth store, and client factory.
@@ -35,7 +47,31 @@ func NewHandler(reg *registry.Registry, store domain.AuthStore, factory ClientFa
 		authStore: store,
 		factory:   factory,
 		startedAt: time.Now(),
+		watch:     make(map[string]watchRecord),
 	}
+}
+
+// watchState reports the recorded binary watch state for a module and whether one
+// was ever recorded.
+func (h *Handler) watchState(name string) (watchRecord, bool) {
+	h.watchMu.Lock()
+	defer h.watchMu.Unlock()
+	rec, ok := h.watch[name]
+	return rec, ok
+}
+
+// recordWatch stores the binary watch state reported by the supervisor.
+func (h *Handler) recordWatch(name, baseline string, stale bool) {
+	h.watchMu.Lock()
+	defer h.watchMu.Unlock()
+	h.watch[name] = watchRecord{baseline: baseline, stale: stale}
+}
+
+// clearWatch drops the watch state of a module that is no longer registered.
+func (h *Handler) clearWatch(name string) {
+	h.watchMu.Lock()
+	defer h.watchMu.Unlock()
+	delete(h.watch, name)
 }
 
 // SetTokenProvider configures the token provider used for OAuth module authentication.
@@ -119,6 +155,7 @@ func (h *Handler) RecallModule(ctx context.Context, name string) (RecallResult, 
 	if err := h.registry.Unregister(name); err != nil {
 		return RecallResult{}, err
 	}
+	h.clearWatch(name)
 
 	return RecallResult{
 		Name:    name,
@@ -163,6 +200,12 @@ func (h *Handler) ToggleModule(ctx context.Context, name string, enable bool) (d
 		Status:  domain.StatusActive,
 		Message: fmt.Sprintf("Module %s enabled", name),
 	}, nil
+}
+
+// SetWatchBinary flips a module's runtime binary-watch flag. The change is runtime-only:
+// it is never persisted to the yaml config, and the supervisor honors it from its next tick.
+func (h *Handler) SetWatchBinary(_ context.Context, name string, enable bool) error {
+	return h.registry.SetWatchBinary(name, enable)
 }
 
 // RestartDaemon gracefully reloads all active downstream MCP modules, reporting any
@@ -294,13 +337,17 @@ func (h *Handler) ListModules(ctx context.Context) ([]ModuleSummary, error) {
 		if m.Config.URL != "" {
 			target = m.Config.URL
 		}
+		watch, _ := h.watchState(m.Name)
 		summaries = append(summaries, ModuleSummary{
-			Name:      m.Name,
-			Transport: m.Config.Transport,
-			Status:    m.Status,
-			Target:    target,
-			Tools:     toolNames,
-			Error:     m.ErrorMessage,
+			Name:        m.Name,
+			Transport:   m.Config.Transport,
+			Status:      m.Status,
+			Target:      target,
+			Tools:       toolNames,
+			Error:       m.ErrorMessage,
+			WatchBinary: m.Config.WatchBinary,
+			WatchStale:  watch.stale,
+			Fingerprint: watch.baseline,
 		})
 	}
 

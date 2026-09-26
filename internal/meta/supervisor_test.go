@@ -297,6 +297,68 @@ func TestSupervisorRunProbesModulesOnInterval(t *testing.T) {
 	}
 }
 
+// TestSupervisor_ReportsWatchState checks the watch state module summaries expose:
+// a baseline fingerprint after the first sighting, stale while a swap is pending, and
+// a fresh baseline once the swap lands.
+func TestSupervisor_ReportsWatchState(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mod")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:        "mark42",
+		Transport:   domain.TransportStdio,
+		Command:     bin,
+		AutoRestart: true,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{})
+
+	summary := func() domain.ModuleSummary {
+		t.Helper()
+		mods, err := handler.ListModules(t.Context())
+		if err != nil {
+			t.Fatalf("ListModules failed: %v", err)
+		}
+		if len(mods) != 1 {
+			t.Fatalf("expected 1 module, got %d", len(mods))
+		}
+		return mods[0]
+	}
+
+	sup.CheckOnce(t.Context()) // first sighting only records the baseline
+	first := summary()
+	if first.Fingerprint == "" {
+		t.Fatal("expected baseline fingerprint after first tick")
+	}
+	if first.WatchStale {
+		t.Fatal("expected clean watch state after first tick")
+	}
+
+	// A changed binary whose swap fails stays stale on the old baseline.
+	factory.createEr = errors.New("spawn failed")
+	writeBinary(t, bin, "v2")
+	sup.CheckOnce(t.Context())
+	pending := summary()
+	if !pending.WatchStale {
+		t.Fatal("expected stale watch state while the swap is pending")
+	}
+	if pending.Fingerprint != first.Fingerprint {
+		t.Fatalf("expected failed swap to keep baseline %q, got %q", first.Fingerprint, pending.Fingerprint)
+	}
+
+	// The next tick lands the swap: fresh baseline, no longer stale.
+	factory.createEr = nil
+	sup.CheckOnce(t.Context())
+	swapped := summary()
+	if swapped.WatchStale {
+		t.Fatal("expected clean watch state after the swap landed")
+	}
+	if swapped.Fingerprint == "" || swapped.Fingerprint == first.Fingerprint {
+		t.Fatalf("expected new baseline after swap, got %q", swapped.Fingerprint)
+	}
+}
+
 // writeBinary writes version bytes to path, standing in for a module binary
 // that gets replaced between supervisor ticks.
 func writeBinary(t *testing.T, path, version string) {

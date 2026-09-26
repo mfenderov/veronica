@@ -90,10 +90,16 @@ func (c ModuleConfig) Validate() error {
 // WatchBinaryEnabled reports whether binary-change watching applies.
 // Unset (nil) means enabled; explicit false opts out.
 func (c ModuleConfig) WatchBinaryEnabled() bool {
-	if c.WatchBinary == nil {
+	return watchBinaryEnabled(c.WatchBinary)
+}
+
+// watchBinaryEnabled reports whether binary-change watching applies to a flag:
+// unset (nil) means enabled; explicit false opts out.
+func watchBinaryEnabled(watch *bool) bool {
+	if watch == nil {
 		return true
 	}
-	return *c.WatchBinary
+	return *watch
 }
 
 // Tool represents an MCP tool definition with its schema and origin module metadata.
