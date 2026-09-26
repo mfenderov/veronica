@@ -74,6 +74,17 @@ func (h *Handler) clearWatch(name string) {
 	delete(h.watch, name)
 }
 
+// moduleConfig returns the module's config as a locked snapshot, so callers can copy it
+// while tool calls flip the runtime watch flag. A module that is no longer registered
+// falls back to the live struct: SetWatchBinary only writes registered modules, so that
+// copy cannot race with it.
+func (h *Handler) moduleConfig(mod *domain.Module) domain.ModuleConfig {
+	if cfg, ok := h.registry.ConfigSnapshot(mod.Name); ok {
+		return cfg
+	}
+	return mod.Config
+}
+
 // SetTokenProvider configures the token provider used for OAuth module authentication.
 func (h *Handler) SetTokenProvider(provider domain.TokenProvider) {
 	h.tokenProvider = provider
@@ -183,7 +194,7 @@ func (h *Handler) ToggleModule(ctx context.Context, name string, enable bool) (d
 		}, nil
 	}
 
-	client, err := h.factory.CreateClient(ctx, mod.Config)
+	client, err := h.factory.CreateClient(ctx, h.moduleConfig(mod))
 	if err != nil {
 		return domain.ToggleResult{}, err
 	}
@@ -297,7 +308,7 @@ func (h *Handler) canRefreshToken(oauthCfg domain.OAuthClientConfig, tok *domain
 // client registered and serving.
 func (h *Handler) restartModuleClient(ctx context.Context, mod *domain.Module) error {
 	old := h.registry.GetClient(mod.Name)
-	client, err := h.factory.CreateClient(ctx, mod.Config)
+	client, err := h.factory.CreateClient(ctx, h.moduleConfig(mod))
 	if err != nil {
 		return err
 	}
@@ -337,7 +348,8 @@ func (h *Handler) ListModules(ctx context.Context) ([]ModuleSummary, error) {
 		if m.Config.URL != "" {
 			target = m.Config.URL
 		}
-		watch, _ := h.watchState(m.Name)
+		rec, _ := h.watchState(m.Name)
+		watch := h.registry.WatchFlag(m.Name)
 		summaries = append(summaries, ModuleSummary{
 			Name:        m.Name,
 			Transport:   m.Config.Transport,
@@ -345,9 +357,9 @@ func (h *Handler) ListModules(ctx context.Context) ([]ModuleSummary, error) {
 			Target:      target,
 			Tools:       toolNames,
 			Error:       m.ErrorMessage,
-			WatchBinary: m.Config.WatchBinary,
-			WatchStale:  watch.stale,
-			Fingerprint: watch.baseline,
+			WatchBinary: &watch,
+			WatchStale:  rec.stale,
+			Fingerprint: rec.baseline,
 		})
 	}
 
