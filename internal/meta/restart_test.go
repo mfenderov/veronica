@@ -143,13 +143,14 @@ func (f *stubFactory) last() *stubChildClient {
 	return f.created[len(f.created)-1]
 }
 
-func (f *stubFactory) stopAll() {
+func (f *stubFactory) stopAll(t *testing.T) {
+	t.Helper()
 	f.mu.Lock()
 	created := append([]*stubChildClient(nil), f.created...)
 	f.mu.Unlock()
 
 	for _, c := range created {
-		_ = c.Stop(context.Background())
+		_ = c.Stop(context.WithoutCancel(t.Context()))
 	}
 }
 
@@ -162,7 +163,7 @@ func newRestartFixture(t *testing.T) (*registry.Registry, *Handler, *stubFactory
 	}
 	reg := registry.New()
 	factory := &stubFactory{broken: map[string]bool{}, toolsFail: map[string]bool{}}
-	t.Cleanup(factory.stopAll)
+	t.Cleanup(func() { factory.stopAll(t) })
 	return reg, NewHandler(reg, store, factory), factory
 }
 

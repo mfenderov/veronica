@@ -17,6 +17,7 @@ import (
 	"github.com/mfenderov/veronica/internal/meta"
 	"github.com/mfenderov/veronica/internal/registry"
 	"github.com/mfenderov/veronica/internal/transport"
+	"github.com/stretchr/testify/require"
 )
 
 // realClientFactory returns real downstream clients so the test can observe an
@@ -129,31 +130,38 @@ func main() {
 	return binPath, pidFile
 }
 
-// readStubPID polls until the stub has published its PID file and returns the PID.
+// readStubPID waits until the stub has published its PID file and returns the PID.
 func readStubPID(t *testing.T, path string) int {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if data, err := os.ReadFile(path); err == nil {
-			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 {
-				return pid
-			}
+	var pid int
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return false
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("stub never wrote its PID file %s", path)
-	return 0
+		p, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil || p <= 0 {
+			return false
+		}
+		pid = p
+		return true
+	}, 5*time.Second, 20*time.Millisecond, "stub never wrote its PID file %s", path)
+	return pid
 }
 
-// stubProcessGone polls until pid no longer refers to a live process, up to timeout.
+// stubProcessGone waits until pid no longer refers to a live process, up to timeout.
 func stubProcessGone(pid int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
 		proc, err := os.FindProcess(pid)
 		if err != nil || proc.Signal(syscall.Signal(0)) != nil {
 			return true
 		}
-		time.Sleep(20 * time.Millisecond)
+		if time.Now().After(deadline) {
+			return false
+		}
 	}
 	return false
 }

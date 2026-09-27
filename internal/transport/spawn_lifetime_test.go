@@ -13,6 +13,8 @@ import (
 
 	"github.com/mfenderov/veronica/internal/domain"
 	"github.com/mfenderov/veronica/internal/transport"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestDownstreamStdioSpawnSurvivesContextCancel pins the downstream child's
@@ -75,10 +77,10 @@ func main() {
 		t.Fatalf("Start failed: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = downstream.Stop(context.Background())
+		_ = downstream.Stop(context.WithoutCancel(t.Context()))
 	})
 
-	warmCtx, cancelWarm := context.WithTimeout(context.Background(), 5*time.Second)
+	warmCtx, cancelWarm := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancelWarm()
 	if _, err := downstream.CallTool(warmCtx, domain.ToolCall{ToolName: "echo"}); err != nil {
 		t.Fatalf("warm-up CallTool failed: %v", err)
@@ -86,12 +88,16 @@ func main() {
 
 	cancelStart()
 
-	// Give the exec.CommandContext cancellation path time to kill a
-	// context-bound child so a regression fails deterministically instead of
-	// racing the probe.
-	time.Sleep(500 * time.Millisecond)
+	// The kill lands promptly in the buggy case; the fixed child serves
+	// forever, so a failing probe here means the regression is present.
+	assert.Never(t, func() bool {
+		callCtx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+		defer cancel()
+		_, err := downstream.ListTools(callCtx)
+		return err != nil
+	}, 2*time.Second, 100*time.Millisecond, "child died after start context cancel")
 
-	probeCtx, cancelProbe := context.WithTimeout(context.Background(), 5*time.Second)
+	probeCtx, cancelProbe := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancelProbe()
 
 	if _, err := downstream.ListTools(probeCtx); err != nil {
@@ -159,12 +165,12 @@ func main() {
 	}
 	t.Cleanup(func() {
 		// Never leave a child behind on a failing run.
-		_ = downstream.Stop(context.Background())
+		_ = downstream.Stop(context.WithoutCancel(t.Context()))
 	})
 
 	// A bounded context, like a tool call's: the handshake times out because
 	// the stub never answers initialize.
-	startCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	startCtx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	if err := downstream.Start(startCtx); err == nil {
 		t.Fatal("Start succeeded against a stub that never answers initialize")
@@ -176,31 +182,38 @@ func main() {
 	}
 }
 
-// readChildPID polls until the stub has published its PID file and returns the PID.
+// readChildPID waits until the stub has published its PID file and returns the PID.
 func readChildPID(t *testing.T, path string) int {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if data, err := os.ReadFile(path); err == nil {
-			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 {
-				return pid
-			}
+	var pid int
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return false
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("stub never wrote its PID file %s", path)
-	return 0
+		p, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil || p <= 0 {
+			return false
+		}
+		pid = p
+		return true
+	}, 5*time.Second, 20*time.Millisecond, "stub never wrote its PID file %s", path)
+	return pid
 }
 
-// waitForChildExit polls until pid no longer refers to a live process, up to timeout.
+// waitForChildExit waits until pid no longer refers to a live process, up to timeout.
 func waitForChildExit(pid int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
 		proc, err := os.FindProcess(pid)
 		if err != nil || proc.Signal(syscall.Signal(0)) != nil {
 			return true
 		}
-		time.Sleep(20 * time.Millisecond)
+		if time.Now().After(deadline) {
+			return false
+		}
 	}
 	return false
 }
