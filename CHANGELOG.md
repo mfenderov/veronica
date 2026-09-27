@@ -2,6 +2,28 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.10.0 - 2026-09-27
+#### Features
+- TUI watch toggle and hotswap visibility - (c384364) - mfenderov
+- supervisor hotswaps modules whose binary fingerprint changed - (c779c5f) - mfenderov
+- watch_binary flag defaulting to on - (3d7c4bd) - mfenderov
+- binary fingerprint helpers for hotswap watch - (f3a8a26) - mfenderov
+#### Bug Fixes
+- satisfy lint and CRAP gates for hotswap code - (103a702) - mfenderov
+- stop started client when toggle-enable Register fails - (22ee6e8) - mfenderov
+- close downstream transport when Initialize fails - (9d95157) - mfenderov
+- decouple downstream spawn lifetime from request context - (d060aee) - mfenderov
+- failed watch hotswap keeps the old child serving instead of killing it - (72bbc24) - mfenderov
+- lock runtime watch flag reads behind registry accessors - (9a3c8f1) - mfenderov
+- failed restart stops the displaced client and never leaks a half-started one - (383d594) - mfenderov
+- restart stops the old child after the new one serves - (f50d37d) - mfenderov
+- failed hotswap keeps old fingerprint and retries; restart re-baselines it - (d44ecfd) - mfenderov
+- resolve module binary to absolute path for separator commands - (6cb0983) - mfenderov
+#### Miscellaneous Chores
+- gofmt transport retry test - (c009c2f) - mfenderov
+
+- - -
+
 ## v0.9.1 - 2026-09-26
 #### Bug Fixes
 - (**release**) emit postflight_steps in Homebrew cask - (cd1ceb4) - mfenderov
