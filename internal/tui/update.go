@@ -206,15 +206,19 @@ func (m Model) handleActionKey(key string) (tea.Model, tea.Cmd) {
 	if res, cmd, ok := m.handleRefreshKey(key); ok {
 		return res, cmd
 	}
+	if res, cmd, ok := m.handleWatchActionKey(key); ok {
+		return res, cmd
+	}
+	return m.handleMainActionKey(key)
+}
+
+// handleMainActionKey handles the primary module action keys.
+func (m Model) handleMainActionKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "q":
 		return m, tea.Quit
 	case " ":
 		return m.handleToggleKey()
-	case "W":
-		return m.handleWatchKey()
-	case "P":
-		return m.handlePauseKey()
 	case "e":
 		return m.enterEditMode(), nil
 	case "A", "ctrl+a":
@@ -227,6 +231,20 @@ func (m Model) handleActionKey(key string) (tea.Model, tea.Cmd) {
 		return m.enterAddMode(), nil
 	default:
 		return m, nil
+	}
+}
+
+// handleWatchActionKey handles binary-watch keys, reporting whether it consumed the key.
+func (m Model) handleWatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
+	switch key {
+	case "W":
+		res, cmd := m.handleWatchKey()
+		return res, cmd, true
+	case "P":
+		res, cmd := m.handlePauseKey()
+		return res, cmd, true
+	default:
+		return m, nil, false
 	}
 }
 

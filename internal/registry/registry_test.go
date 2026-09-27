@@ -215,6 +215,41 @@ func TestRegistryDeactivate(t *testing.T) {
 	}
 }
 
+func TestRegistryRegisterErrorStopsDisplacedClient(t *testing.T) {
+	t.Parallel()
+
+	reg := registry.New()
+	mod := domain.NewModule(domain.ModuleConfig{
+		Name:      "test-mod",
+		Transport: domain.TransportStdio,
+		Command:   "/bin/echo",
+	})
+	client := &mockClient{
+		tools:  []domain.Tool{{Name: "test_tool", OriginModule: "test-mod"}},
+		status: domain.StatusActive,
+	}
+
+	if err := reg.Register(mod, client); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	reg.RegisterError(mod, errors.New("boom"))
+
+	got, exists := reg.GetModule("test-mod")
+	if !exists {
+		t.Fatal("expected module to stay registered in error state")
+	}
+	if got.Status != domain.StatusError {
+		t.Errorf("expected error status, got %q", got.Status)
+	}
+	if client.status != domain.StatusInactive {
+		t.Error("expected displaced client to be stopped")
+	}
+	if len(reg.ListTools()) != 0 {
+		t.Errorf("expected 0 tools after error, got %d", len(reg.ListTools()))
+	}
+}
+
 func TestRegistry_ListModulesDeterministicOrder(t *testing.T) {
 	t.Parallel()
 

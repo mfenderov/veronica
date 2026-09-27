@@ -129,16 +129,8 @@ func renderModuleListItem(mod domain.ModuleSummary, watch string, selected bool,
 	return normalItemStyle.Width(width).Render(row)
 }
 
-func (m Model) renderRightPane(width, height int) string {
+func (m Model) renderInspectorHeader(mod domain.ModuleSummary) string {
 	var b strings.Builder
-
-	if len(m.modules) == 0 || m.cursor >= len(m.modules) {
-		b.WriteString(textSubtle.Render("No module selected"))
-		return paneStyle.Width(width).Height(height).Render(b.String())
-	}
-
-	mod := m.modules[m.cursor]
-	b.WriteString(paneTitle.Render("INSPECTOR: "+mod.Name) + "\n\n")
 
 	var statusStr string
 	switch mod.Status {
@@ -163,6 +155,21 @@ func (m Model) renderRightPane(width, height int) string {
 		watchStr = textDanger.Render(watchStale)
 	}
 	fmt.Fprintf(&b, "Watch:     %s %s\n\n", watchStr, textSubtle.Render("[W] toggle  [P] pause"))
+
+	return b.String()
+}
+
+func (m Model) renderRightPane(width, height int) string {
+	var b strings.Builder
+
+	if len(m.modules) == 0 || m.cursor >= len(m.modules) {
+		b.WriteString(textSubtle.Render("No module selected"))
+		return paneStyle.Width(width).Height(height).Render(b.String())
+	}
+
+	mod := m.modules[m.cursor]
+	b.WriteString(paneTitle.Render("INSPECTOR: "+mod.Name) + "\n\n")
+	b.WriteString(m.renderInspectorHeader(mod))
 
 	b.WriteString(paneTitle.Render(fmt.Sprintf("TOOLS EXPOSED (%d)", len(mod.Tools))) + "\n")
 	if len(mod.Tools) == 0 {

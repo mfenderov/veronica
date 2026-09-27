@@ -379,7 +379,7 @@ func TestSetWatchBinaryConcurrentWithWatchReads(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			if err := handler.SetWatchBinary(context.Background(), "mark42", i%2 == 0); err != nil {
+			if err := handler.SetWatchBinary(t.Context(), "mark42", i%2 == 0); err != nil {
 				t.Errorf("SetWatchBinary failed: %v", err)
 			}
 		}
@@ -387,13 +387,13 @@ func TestSetWatchBinaryConcurrentWithWatchReads(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			sup.CheckOnce(context.Background())
+			sup.CheckOnce(t.Context())
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			if _, err := handler.ListModules(context.Background()); err != nil {
+			if _, err := handler.ListModules(t.Context()); err != nil {
 				t.Errorf("ListModules failed: %v", err)
 			}
 		}
