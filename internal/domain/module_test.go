@@ -155,3 +155,26 @@ func TestAuthTokenExpiration(t *testing.T) {
 		t.Fatal("expected token to not be expiring soon")
 	}
 }
+
+func TestModuleConfig_WatchBinaryDefaultsOn(t *testing.T) {
+	cfg := domain.ModuleConfig{Name: "m", Transport: domain.TransportStdio, Command: "/bin/srv"}
+	if !cfg.WatchBinaryEnabled() {
+		t.Error("expected watch enabled when flag unset")
+	}
+}
+
+func TestModuleConfig_WatchBinaryExplicitOff(t *testing.T) {
+	off := false
+	cfg := domain.ModuleConfig{Name: "m", Transport: domain.TransportStdio, Command: "/bin/srv", WatchBinary: &off}
+	if cfg.WatchBinaryEnabled() {
+		t.Error("expected watch disabled when flag false")
+	}
+}
+
+func TestModuleConfig_WatchBinaryExplicitOn(t *testing.T) {
+	on := true
+	cfg := domain.ModuleConfig{Name: "m", Transport: domain.TransportStdio, Command: "/bin/srv", WatchBinary: &on}
+	if !cfg.WatchBinaryEnabled() {
+		t.Error("expected watch enabled when flag true")
+	}
+}

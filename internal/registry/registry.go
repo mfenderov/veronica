@@ -73,14 +73,22 @@ func (r *Registry) Register(mod *domain.Module, client domain.DownstreamClient) 
 }
 
 // RegisterError registers a module that failed to start, preserving its presence in the registry with error status.
+// A client still registered for the module — the serving child of a failed restart —
+// is stopped and dropped like Unregister does, so a failed restart cannot orphan it.
 func (r *Registry) RegisterError(mod *domain.Module, err error) {
 	r.mu.Lock()
+	client := r.clients[mod.Name]
 	r.modules[mod.Name] = mod
 	delete(r.clients, mod.Name)
 	mod.MarkError(err.Error())
 	r.rebuildCatalogLocked()
 	r.mu.Unlock()
 
+	if client != nil {
+		if stopErr := client.Stop(context.Background()); stopErr != nil {
+			slog.Warn("failed to stop client of errored module", "module", mod.Name, "error", stopErr)
+		}
+	}
 	r.notifyListeners()
 }
 
@@ -209,6 +217,57 @@ func (r *Registry) GetModule(name string) (*domain.Module, bool) {
 
 	m, ok := r.modules[name]
 	return m, ok
+}
+
+// SetWatchBinary flips a module's runtime binary-watch flag. The change is runtime-only
+// and never touches the persisted config; the supervisor honors it from its next tick.
+func (r *Registry) SetWatchBinary(name string, enabled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	m, ok := r.modules[name]
+	if !ok {
+		return domain.ErrModuleNotFound
+	}
+	m.Config.WatchBinary = &enabled
+	return nil
+}
+
+// WatchFlag reports a module's runtime binary-watch flag under the registry lock, so it
+// can be read while tool calls flip it. Unknown modules report enabled, matching the
+// nil→true semantics of ModuleConfig.WatchBinaryEnabled.
+func (r *Registry) WatchFlag(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	m, ok := r.modules[name]
+	if !ok {
+		return true
+	}
+	return m.Config.WatchBinaryEnabled()
+}
+
+// ConfigSnapshot returns a copy of a module's config taken under the registry lock, so
+// callers can inspect it while runtime flags change concurrently. ok is false when no
+// module with that name is registered.
+func (r *Registry) ConfigSnapshot(name string) (domain.ModuleConfig, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	m, ok := r.modules[name]
+	if !ok {
+		return domain.ModuleConfig{}, false
+	}
+	return m.Config, true
+}
+
+// GetClient returns the downstream client registered for a module, or nil when none
+// is registered. It lets restart capture the live client before Register replaces it.
+func (r *Registry) GetClient(name string) domain.DownstreamClient {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.clients[name]
 }
 
 // ProbeModule actively checks that a module's downstream client still responds.

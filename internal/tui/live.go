@@ -36,7 +36,27 @@ const (
 	eventKindRemoved = "removed"
 	eventKindStatus  = "status"
 	eventKindError   = "error"
+	eventKindSwap    = "hotswap"
 )
+
+// Watch states shown in the module list's watch column.
+const (
+	watchClean = "clean"
+	watchStale = "stale"
+	watchOff   = "off"
+)
+
+// watchLabel reports the watch state to show for a module. A global pause wins over
+// the per-module flag, and a seen fingerprint mismatch shows as stale.
+func watchLabel(mod domain.ModuleSummary, paused bool) string {
+	if paused || !mod.WatchBinaryEnabled() {
+		return watchOff
+	}
+	if mod.WatchStale {
+		return watchStale
+	}
+	return watchClean
+}
 
 // maxEvents caps the retained event stream; oldest entries are dropped.
 const maxEvents = 50
@@ -72,6 +92,11 @@ func (localEventSource) Deltas(prev, next []domain.ModuleSummary) []uiEvent {
 			out = append(out, newEvent(eventKindAdded, "module added: "+n.Name))
 			continue
 		}
+		if swapDetected(p, n) {
+			// A landed hotswap replaces the coarser status/tool-count deltas.
+			out = append(out, newEvent(eventKindSwap, swapEventText(p, n)))
+			continue
+		}
 		if p.Status != n.Status {
 			out = append(out, newEvent(eventKindStatus,
 				fmt.Sprintf("module %s status: %s -> %s", n.Name, p.Status, n.Status)))
@@ -88,6 +113,39 @@ func (localEventSource) Deltas(prev, next []domain.ModuleSummary) []uiEvent {
 		}
 	}
 	return out
+}
+
+// swapDetected reports whether the module restarted onto a new binary or server
+// version between two snapshots. A first-sighting fingerprint (empty before) is not
+// a swap, and only a landed swap changes the recorded baseline.
+func swapDetected(prev, next domain.ModuleSummary) bool {
+	if prev.Fingerprint != "" && next.Fingerprint != "" && prev.Fingerprint != next.Fingerprint {
+		return true
+	}
+	return prev.Version != "" && next.Version != "" && prev.Version != next.Version
+}
+
+// swapEventText renders the hotswap event line for a landed swap, for example
+// "hotswapped mark42: 3.4.1 → 3.5.0 (20 tools)".
+func swapEventText(prev, next domain.ModuleSummary) string {
+	return fmt.Sprintf("hotswapped %s: %s → %s (%d tools)",
+		next.Name,
+		swapVersionLabel(prev.Version, prev.Fingerprint),
+		swapVersionLabel(next.Version, next.Fingerprint),
+		len(next.Tools))
+}
+
+// swapVersionLabel renders serverInfo.version when the module reports one, falling
+// back to a fingerprint prefix for binaries that report no version.
+func swapVersionLabel(version, fingerprint string) string {
+	if version != "" {
+		return version
+	}
+	const fingerprintPrefixLen = 8
+	if len(fingerprint) > fingerprintPrefixLen {
+		return fingerprint[:fingerprintPrefixLen]
+	}
+	return fingerprint
 }
 
 func indexByName(mods []domain.ModuleSummary) map[string]domain.ModuleSummary {

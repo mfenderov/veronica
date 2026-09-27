@@ -276,6 +276,7 @@ func registerMetaTools(upstream *transport.UpstreamServer, h *meta.Handler, cfg 
 	registerDeployModuleTool(upstream, h, cfg, cfgPath)
 	registerRecallModuleTool(upstream, h, cfg, cfgPath)
 	registerToggleModuleTool(upstream, h, cfg, cfgPath)
+	registerSetWatchBinaryTool(upstream, h)
 	registerReauthModuleTool(upstream, h)
 	registerRestartDaemonTool(upstream, h)
 	registerTracesTool(upstream, h)
@@ -495,6 +496,44 @@ func registerToggleModuleTool(upstream *transport.UpstreamServer, h *meta.Handle
 			_ = cfg.Save(cfgPath)
 
 			return transport.ResultJSON(res), nil
+		},
+	)
+}
+
+// registerSetWatchBinaryTool exposes the runtime binary-watch flag flip. Unlike the
+// toggle tool, it never writes to the config file: the flag is runtime-only.
+func registerSetWatchBinaryTool(upstream *transport.UpstreamServer, h *meta.Handler) {
+	upstream.RegisterCustomTool(
+		domain.Tool{
+			Name:        "veronica_set_watch_binary",
+			Description: "Flip a module's binary-watch flag at runtime (not persisted to config)",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Name of the module whose binary watch to flip",
+					},
+					"enable": map[string]any{
+						"type":        "boolean",
+						"description": "Whether to watch (true) or stop watching (false) the module binary for changes",
+					},
+				},
+				"required": []string{"name", "enable"},
+			},
+		},
+		func(ctx context.Context, args any) (domain.ToolResult, error) {
+			var p struct {
+				Name   string `json:"name"`
+				Enable bool   `json:"enable"`
+			}
+			b, _ := json.Marshal(args)
+			_ = json.Unmarshal(b, &p)
+
+			if err := h.SetWatchBinary(ctx, p.Name, p.Enable); err != nil {
+				return transport.ResultError(err), nil
+			}
+			return transport.ResultJSON(map[string]any{"name": p.Name, "enabled": p.Enable}), nil
 		},
 	)
 }
