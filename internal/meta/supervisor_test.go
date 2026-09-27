@@ -3,6 +3,8 @@ package meta_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -292,5 +294,418 @@ func TestSupervisorRunProbesModulesOnInterval(t *testing.T) {
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("expected clean shutdown, got: %v", err)
+	}
+}
+
+// TestSupervisor_ReportsWatchState checks the watch state module summaries expose:
+// a baseline fingerprint after the first sighting, stale while a swap is pending, and
+// a fresh baseline once the swap lands.
+func TestSupervisor_ReportsWatchState(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mod")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:        "mark42",
+		Transport:   domain.TransportStdio,
+		Command:     bin,
+		AutoRestart: true,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{})
+
+	summary := func() domain.ModuleSummary {
+		t.Helper()
+		mods, err := handler.ListModules(t.Context())
+		if err != nil {
+			t.Fatalf("ListModules failed: %v", err)
+		}
+		if len(mods) != 1 {
+			t.Fatalf("expected 1 module, got %d", len(mods))
+		}
+		return mods[0]
+	}
+
+	sup.CheckOnce(t.Context()) // first sighting only records the baseline
+	first := summary()
+	if first.Fingerprint == "" {
+		t.Fatal("expected baseline fingerprint after first tick")
+	}
+	if first.WatchStale {
+		t.Fatal("expected clean watch state after first tick")
+	}
+
+	// A changed binary whose swap fails stays stale on the old baseline.
+	factory.createEr = errors.New("spawn failed")
+	writeBinary(t, bin, "v2")
+	sup.CheckOnce(t.Context())
+	pending := summary()
+	if !pending.WatchStale {
+		t.Fatal("expected stale watch state while the swap is pending")
+	}
+	if pending.Fingerprint != first.Fingerprint {
+		t.Fatalf("expected failed swap to keep baseline %q, got %q", first.Fingerprint, pending.Fingerprint)
+	}
+
+	// The next tick lands the swap: fresh baseline, no longer stale.
+	factory.createEr = nil
+	sup.CheckOnce(t.Context())
+	swapped := summary()
+	if swapped.WatchStale {
+		t.Fatal("expected clean watch state after the swap landed")
+	}
+	if swapped.Fingerprint == "" || swapped.Fingerprint == first.Fingerprint {
+		t.Fatalf("expected new baseline after swap, got %q", swapped.Fingerprint)
+	}
+}
+
+// TestSetWatchBinaryConcurrentWithWatchReads guards the runtime watch flag against data
+// races: the supervisor's fingerprint path and the module summaries read it while a tool
+// call flips it. Before the locked accessors this failed under `go test -race`.
+func TestSetWatchBinaryConcurrentWithWatchReads(t *testing.T) {
+	reg, handler, _ := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mod")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{})
+
+	const iterations = 2000
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			if err := handler.SetWatchBinary(context.Background(), "mark42", i%2 == 0); err != nil {
+				t.Errorf("SetWatchBinary failed: %v", err)
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			sup.CheckOnce(context.Background())
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			if _, err := handler.ListModules(context.Background()); err != nil {
+				t.Errorf("ListModules failed: %v", err)
+			}
+		}
+	}()
+	wg.Wait()
+}
+
+// writeBinary writes version bytes to path, standing in for a module binary
+// that gets replaced between supervisor ticks.
+func writeBinary(t *testing.T, path, version string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(version), 0o755); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+}
+
+func TestSupervisor_RestartsOnFingerprintChange(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context()) // first tick only records the fingerprint
+	if factory.createCount() != 0 {
+		t.Fatalf("expected first tick to record the fingerprint without restarting, got %d restarts", factory.createCount())
+	}
+
+	writeBinary(t, bin, "v2") // replace the binary with new bytes
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected exactly one restart after fingerprint change, got %d", factory.createCount())
+	}
+	mod, ok := reg.GetModule("mark42")
+	if !ok {
+		t.Fatal("expected module to stay registered after hotswap")
+	}
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected hotswapped module to be active, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+}
+
+func TestSupervisor_NoRestartOnSameContent(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+
+	later := time.Now().Add(2 * time.Hour)
+	if err := os.Chtimes(bin, later, later); err != nil {
+		t.Fatalf("Chtimes failed: %v", err)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 0 {
+		t.Fatalf("expected no restart for same content with new mtime, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_DeletedBinaryKeepsModule(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+
+	if err := os.Remove(bin); err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 0 {
+		t.Fatalf("expected no restart while the binary is missing, got %d", factory.createCount())
+	}
+	mod, ok := reg.GetModule("mark42")
+	if !ok {
+		t.Fatal("expected module to stay registered while the binary is missing")
+	}
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected module to stay active while the binary is missing, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+
+	// The old fingerprint is kept, so a binary that comes back changed still hotswaps.
+	writeBinary(t, bin, "v2")
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected one restart after the changed binary reappeared, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_WatchDisabledSkips(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	off := false
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:        "mark42",
+		Transport:   domain.TransportStdio,
+		Command:     bin,
+		WatchBinary: &off,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+
+	writeBinary(t, bin, "v2")
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 0 {
+		t.Fatalf("expected no restart with watch_binary disabled, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_ShimNeverWatched(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   "npx",
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+	sup.CheckOnce(t.Context())
+
+	if factory.createCount() != 0 {
+		t.Fatalf("expected shim command to never restart, got %d", factory.createCount())
+	}
+	mod, ok := reg.GetModule("mark42")
+	if !ok {
+		t.Fatal("expected module to stay registered")
+	}
+	if mod.Status != domain.StatusActive || mod.ErrorMessage != "" {
+		t.Fatalf("expected shim module to stay active without errors, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+}
+
+func TestSupervisor_TwoUpgradesOneTickRestartsOnce(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context())
+
+	// Two upgrades land inside a single tick window.
+	for _, version := range []string{"v2", "v3"} {
+		writeBinary(t, bin, version)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected exactly one restart for two upgrades in one tick, got %d", factory.createCount())
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected the restart to land on the latest fingerprint, got %d restarts", factory.createCount())
+	}
+}
+
+func TestSupervisor_FailedHotswapKeepsOldChildAndRetries(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:      "mark42",
+		Transport: domain.TransportStdio,
+		Command:   bin,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context()) // record v1
+
+	factory.createEr = errors.New("spawn failed")
+	writeBinary(t, bin, "v2")
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected one hotswap attempt, got %d", factory.createCount())
+	}
+
+	// A failed hotswap must never kill a healthy module: the old child keeps
+	// serving and the old fingerprint stays recorded (spec Goal 3).
+	mod, _ := reg.GetModule("mark42")
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected module to stay active after failed hotswap, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+	if err := reg.ProbeModule(t.Context(), "mark42"); err != nil {
+		t.Fatalf("expected the old child to keep serving after failed hotswap, got %v", err)
+	}
+
+	// The fingerprint was rolled back, so the next tick retries even without auto_restart.
+	factory.createEr = nil
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 2 {
+		t.Fatalf("expected the hotswap to retry once the factory works, got %d", factory.createCount())
+	}
+	mod, _ = reg.GetModule("mark42")
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected retried module to be active, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 2 {
+		t.Fatalf("expected no further restart after the retry, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_ErrorRecoveryOnNewBinaryRestartsOnce(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	client := mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:        "mark42",
+		Transport:   domain.TransportStdio,
+		Command:     bin,
+		AutoRestart: true,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context()) // record v1
+
+	// The module stops responding and its restart fails, leaving it in error.
+	factory.createEr = errors.New("spawn failed")
+	client.markUnhealthy()
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected one failed restart attempt, got %d", factory.createCount())
+	}
+
+	// The binary changes to v2 while the module sits in error. Recovery must
+	// restart exactly once and must not hotswap again for the same change.
+	writeBinary(t, bin, "v2")
+	factory.createEr = nil
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 2 {
+		t.Fatalf("expected exactly one recovery restart, got %d", factory.createCount())
+	}
+	mod, _ := reg.GetModule("mark42")
+	if mod.Status != domain.StatusActive {
+		t.Fatalf("expected recovered module to be active, got %s (%s)", mod.Status, mod.ErrorMessage)
+	}
+
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 2 {
+		t.Fatalf("expected no second restart for the same binary change, got %d", factory.createCount())
+	}
+}
+
+func TestSupervisor_HotswapAtMostOneRestartPerTick(t *testing.T) {
+	t.Parallel()
+
+	reg, handler, factory := newSupervisorFixture(t)
+	bin := filepath.Join(t.TempDir(), "mark42")
+	writeBinary(t, bin, "v1")
+	mountSupervisedModule(t, reg, domain.ModuleConfig{
+		Name:        "mark42",
+		Transport:   domain.TransportStdio,
+		Command:     bin,
+		AutoRestart: true,
+	})
+	sup := meta.NewSupervisor(handler, meta.SupervisorConfig{Interval: time.Millisecond})
+
+	sup.CheckOnce(t.Context()) // record v1
+
+	// A failing hotswap must not fall through to a second restart attempt in
+	// the same tick, even for an auto_restart module.
+	factory.createEr = errors.New("spawn failed")
+	writeBinary(t, bin, "v2")
+	sup.CheckOnce(t.Context())
+	if factory.createCount() != 1 {
+		t.Fatalf("expected exactly one restart attempt per tick, got %d", factory.createCount())
 	}
 }

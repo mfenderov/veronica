@@ -11,12 +11,19 @@ import (
 	"github.com/mfenderov/veronica/internal/domain"
 )
 
+// watchCall records one SetWatchBinary request observed by the stub.
+type watchCall struct {
+	name   string
+	enable bool
+}
+
 type stubPodService struct {
 	status     domain.GatewayStatus
 	modules    []domain.ModuleSummary
 	traces     []domain.ToolTrace
 	statusErr  error
 	modulesErr error
+	watchCalls []watchCall
 }
 
 func (s *stubPodService) Status(_ context.Context) (domain.GatewayStatus, error) {
@@ -59,6 +66,17 @@ func (s *stubPodService) RestartDaemon(_ context.Context) (domain.RestartResult,
 
 func (s *stubPodService) RecentTraces(_ context.Context, _ int) ([]domain.ToolTrace, error) {
 	return s.traces, nil
+}
+
+func (s *stubPodService) SetWatchBinary(_ context.Context, name string, enable bool) error {
+	s.watchCalls = append(s.watchCalls, watchCall{name: name, enable: enable})
+	for i := range s.modules {
+		if s.modules[i].Name == name {
+			val := enable
+			s.modules[i].WatchBinary = &val
+		}
+	}
+	return nil
 }
 
 func testLiveModel() Model {

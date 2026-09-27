@@ -224,4 +224,3 @@ func TestRetryRoundTripper_IsRetryableError(t *testing.T) {
 	assert.True(t, isRetryableError(io.EOF))
 	assert.True(t, isRetryableError(errors.New("connection reset by peer")))
 }
-

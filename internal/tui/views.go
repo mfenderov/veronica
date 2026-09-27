@@ -85,7 +85,7 @@ func (m Model) renderLeftPane(width, height int) string {
 		b.WriteString(textSubtle.Render("No modules configured\nPress [a] to deploy an MCP"))
 	} else {
 		for i, mod := range m.modules {
-			item := renderModuleListItem(mod, i == m.cursor, width-4)
+			item := renderModuleListItem(mod, watchLabel(mod, m.watchPaused), i == m.cursor, width-4)
 			b.WriteString(item + "\n")
 		}
 	}
@@ -96,7 +96,7 @@ func (m Model) renderLeftPane(width, height int) string {
 		Render(b.String())
 }
 
-func renderModuleListItem(mod domain.ModuleSummary, selected bool, width int) string {
+func renderModuleListItem(mod domain.ModuleSummary, watch string, selected bool, width int) string {
 	dot := activeDot
 	switch mod.Status {
 	case domain.StatusInactive:
@@ -121,11 +121,11 @@ func renderModuleListItem(mod domain.ModuleSummary, selected bool, width int) st
 	}
 
 	if selected {
-		row := fmt.Sprintf(" ❯ %s %-12s %s %s", dot, name, transportPill, toolCount)
+		row := fmt.Sprintf(" ❯ %s %-12s %s %s %s", dot, name, transportPill, toolCount, watch)
 		return selectedItemStyle.Width(width).Render(row)
 	}
 
-	row := fmt.Sprintf("   %s %-12s %s %s", dot, name, transportPill, toolCount)
+	row := fmt.Sprintf("   %s %-12s %s %s %s", dot, name, transportPill, toolCount, watch)
 	return normalItemStyle.Width(width).Render(row)
 }
 
@@ -152,7 +152,17 @@ func (m Model) renderRightPane(width, height int) string {
 
 	fmt.Fprintf(&b, "Status:    %s\n", statusStr)
 	fmt.Fprintf(&b, "Transport: %s\n", mod.Transport)
-	fmt.Fprintf(&b, "Target:    %s\n\n", mod.Target)
+	fmt.Fprintf(&b, "Target:    %s\n", mod.Target)
+
+	watch := watchLabel(mod, m.watchPaused)
+	watchStr := textSuccess.Render(watchClean)
+	switch watch {
+	case watchOff:
+		watchStr = textMuted.Render(watchOff)
+	case watchStale:
+		watchStr = textDanger.Render(watchStale)
+	}
+	fmt.Fprintf(&b, "Watch:     %s %s\n\n", watchStr, textSubtle.Render("[W] toggle  [P] pause"))
 
 	b.WriteString(paneTitle.Render(fmt.Sprintf("TOOLS EXPOSED (%d)", len(mod.Tools))) + "\n")
 	if len(mod.Tools) == 0 {
@@ -172,13 +182,15 @@ func (m Model) renderRightPane(width, height int) string {
 
 func (m Model) renderFooter() string {
 	keys := fmt.Sprintf(
-		"%s Toggle  •  %s Edit  •  %s Re-auth  •  %s Reload  •  %s Deploy  •  %s Recall  •  %s Refresh  •  %s Traces  •  %s Pause  •  %s Quit",
+		"%s Toggle  •  %s Edit  •  %s Re-auth  •  %s Reload  •  %s Deploy  •  %s Recall  •  %s Watch  •  %s Watch-Pause  •  %s Refresh  •  %s Traces  •  %s Pause  •  %s Quit",
 		footerKey.Render("[Space]"),
 		footerKey.Render("[e]"),
 		footerKey.Render("[A]"),
 		footerKey.Render("[R]"),
 		footerKey.Render("[a]"),
 		footerKey.Render("[d]"),
+		footerKey.Render("[W]"),
+		footerKey.Render("[P]"),
 		footerKey.Render("[r]"),
 		footerKey.Render("[t]"),
 		footerKey.Render("[p]"),

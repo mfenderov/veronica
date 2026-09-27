@@ -4,7 +4,10 @@ package meta
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"runtime"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/mfenderov/veronica/internal/domain"
@@ -24,6 +27,17 @@ type Handler struct {
 	factory       ClientFactory
 	commandPolicy CommandPolicy
 	startedAt     time.Time
+	// watch holds the supervisor's per-module binary watch state, shared so
+	// module summaries can expose it to clients like the TUI.
+	watchMu sync.Mutex
+	watch   map[string]watchRecord
+}
+
+// watchRecord is the binary watch state of one module: the fingerprint its running
+// child was started from, and whether a binary change was seen but not swapped in yet.
+type watchRecord struct {
+	baseline string
+	stale    bool
 }
 
 // NewHandler creates a new Handler with the given registry, auth store, and client factory.
@@ -33,7 +47,42 @@ func NewHandler(reg *registry.Registry, store domain.AuthStore, factory ClientFa
 		authStore: store,
 		factory:   factory,
 		startedAt: time.Now(),
+		watch:     make(map[string]watchRecord),
 	}
+}
+
+// watchState reports the recorded binary watch state for a module and whether one
+// was ever recorded.
+func (h *Handler) watchState(name string) (watchRecord, bool) {
+	h.watchMu.Lock()
+	defer h.watchMu.Unlock()
+	rec, ok := h.watch[name]
+	return rec, ok
+}
+
+// recordWatch stores the binary watch state reported by the supervisor.
+func (h *Handler) recordWatch(name, baseline string, stale bool) {
+	h.watchMu.Lock()
+	defer h.watchMu.Unlock()
+	h.watch[name] = watchRecord{baseline: baseline, stale: stale}
+}
+
+// clearWatch drops the watch state of a module that is no longer registered.
+func (h *Handler) clearWatch(name string) {
+	h.watchMu.Lock()
+	defer h.watchMu.Unlock()
+	delete(h.watch, name)
+}
+
+// moduleConfig returns the module's config as a locked snapshot, so callers can copy it
+// while tool calls flip the runtime watch flag. A module that is no longer registered
+// falls back to the live struct: SetWatchBinary only writes registered modules, so that
+// copy cannot race with it.
+func (h *Handler) moduleConfig(mod *domain.Module) domain.ModuleConfig {
+	if cfg, ok := h.registry.ConfigSnapshot(mod.Name); ok {
+		return cfg
+	}
+	return mod.Config
 }
 
 // SetTokenProvider configures the token provider used for OAuth module authentication.
@@ -117,6 +166,7 @@ func (h *Handler) RecallModule(ctx context.Context, name string) (RecallResult, 
 	if err := h.registry.Unregister(name); err != nil {
 		return RecallResult{}, err
 	}
+	h.clearWatch(name)
 
 	return RecallResult{
 		Name:    name,
@@ -144,7 +194,7 @@ func (h *Handler) ToggleModule(ctx context.Context, name string, enable bool) (d
 		}, nil
 	}
 
-	client, err := h.factory.CreateClient(ctx, mod.Config)
+	client, err := h.factory.CreateClient(ctx, h.moduleConfig(mod))
 	if err != nil {
 		return domain.ToggleResult{}, err
 	}
@@ -152,6 +202,7 @@ func (h *Handler) ToggleModule(ctx context.Context, name string, enable bool) (d
 		return domain.ToggleResult{}, err
 	}
 	if err := h.registry.Register(mod, client); err != nil {
+		_ = client.Stop(ctx)
 		return domain.ToggleResult{}, err
 	}
 
@@ -163,12 +214,28 @@ func (h *Handler) ToggleModule(ctx context.Context, name string, enable bool) (d
 	}, nil
 }
 
-// RestartDaemon gracefully reloads all active downstream MCP modules.
+// SetWatchBinary flips a module's runtime binary-watch flag. The change is runtime-only:
+// it is never persisted to the yaml config, and the supervisor honors it from its next tick.
+func (h *Handler) SetWatchBinary(_ context.Context, name string, enable bool) error {
+	return h.registry.SetWatchBinary(name, enable)
+}
+
+// RestartDaemon gracefully reloads all active downstream MCP modules, reporting any
+// module that failed to reload instead of swallowing the error.
 func (h *Handler) RestartDaemon(ctx context.Context) (domain.RestartResult, error) {
+	var failed []string
 	for _, mod := range h.registry.ListModules() {
 		if mod.Status == domain.StatusActive {
-			_ = h.restartModuleClient(ctx, mod)
+			if err := h.restartModuleClient(ctx, mod); err != nil {
+				failed = append(failed, fmt.Sprintf("%s: %v", mod.Name, err))
+			}
 		}
+	}
+	if len(failed) > 0 {
+		return domain.RestartResult{
+			Success: false,
+			Message: "some modules failed to reload: " + strings.Join(failed, "; "),
+		}, nil
 	}
 	return domain.RestartResult{
 		Success: true,
@@ -236,15 +303,31 @@ func (h *Handler) canRefreshToken(oauthCfg domain.OAuthClientConfig, tok *domain
 	return tok.RefreshToken != "" && h.tokenProvider != nil && oauthCfg.TokenURL != ""
 }
 
+// restartModuleClient replaces a module's downstream client with a fresh one. The old
+// client is captured before Register (which overwrites the registry entry) and only
+// stopped once the new client is serving, so any failure along the way leaves the old
+// client registered and serving.
 func (h *Handler) restartModuleClient(ctx context.Context, mod *domain.Module) error {
-	client, err := h.factory.CreateClient(ctx, mod.Config)
+	old := h.registry.GetClient(mod.Name)
+	client, err := h.factory.CreateClient(ctx, h.moduleConfig(mod))
 	if err != nil {
 		return err
 	}
 	if err := client.Start(ctx); err != nil {
+		// Best effort: a Start that fails after spawning must not leak the child.
+		_ = client.Stop(ctx)
 		return err
 	}
-	return h.registry.Register(mod, client)
+	if err := h.registry.Register(mod, client); err != nil {
+		_ = client.Stop(ctx)
+		return err
+	}
+	if old != nil {
+		if err := old.Stop(ctx); err != nil {
+			slog.Warn("failed to stop old module client after restart", "module", mod.Name, "error", err)
+		}
+	}
+	return nil
 }
 
 // RecentTraces returns recent tool execution traces from the registry up to limit.
@@ -266,13 +349,18 @@ func (h *Handler) ListModules(ctx context.Context) ([]ModuleSummary, error) {
 		if m.Config.URL != "" {
 			target = m.Config.URL
 		}
+		rec, _ := h.watchState(m.Name)
+		watch := h.registry.WatchFlag(m.Name)
 		summaries = append(summaries, ModuleSummary{
-			Name:      m.Name,
-			Transport: m.Config.Transport,
-			Status:    m.Status,
-			Target:    target,
-			Tools:     toolNames,
-			Error:     m.ErrorMessage,
+			Name:        m.Name,
+			Transport:   m.Config.Transport,
+			Status:      m.Status,
+			Target:      target,
+			Tools:       toolNames,
+			Error:       m.ErrorMessage,
+			WatchBinary: &watch,
+			WatchStale:  rec.stale,
+			Fingerprint: rec.baseline,
 		})
 	}
 

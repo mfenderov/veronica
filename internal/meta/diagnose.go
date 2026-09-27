@@ -173,7 +173,7 @@ func (h *Handler) diagnoseRuntime(ctx context.Context, name string) (Diagnostic,
 	}
 
 	diag.Severity = DiagnosticOK
-	diag.Message = fmt.Sprintf("%d tools reachable on %s", len(mod.Tools), moduleTarget(mod.Config))
+	diag.Message = fmt.Sprintf("%d tools reachable on %s", len(mod.Tools), moduleTarget(h.moduleConfig(mod)))
 	return diag, true
 }
 

@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -71,6 +72,9 @@ type Model struct {
 	lastModulesErr bool
 	bottomPane     bottomPaneMode
 	traces         []domain.ToolTrace
+	// Binary-watch state: a global pause plus the per-module flags from before it.
+	watchPaused bool
+	watchPrior  map[string]bool
 }
 
 // NewModel creates an initialized TUI Model connected to the specified PodService.
@@ -150,6 +154,46 @@ func (m Model) toggleModuleCmd(name string, currentStatus domain.ModuleStatus) t
 			return actionResultMsg{message: fmt.Sprintf("Toggle failed: %v", err), isError: true}
 		}
 		return actionResultMsg{message: res.Message, isError: false}
+	}
+}
+
+// setWatchCmd flips the runtime binary-watch flag for one module. The change is
+// runtime-only: the gateway does not persist it to yaml.
+func (m Model) setWatchCmd(name string, enable bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+		defer cancel()
+		if err := m.service.SetWatchBinary(ctx, name, enable); err != nil {
+			return actionResultMsg{message: fmt.Sprintf("Watch toggle failed: %v", err), isError: true}
+		}
+		verb := "disabled"
+		if enable {
+			verb = "enabled"
+		}
+		return actionResultMsg{message: fmt.Sprintf("Watch %s for %s", verb, name), isError: false}
+	}
+}
+
+// applyWatchFlagsCmd applies one runtime watch flag per module as a single action,
+// used by the global watch pause and its resume.
+func (m Model) applyWatchFlagsCmd(flags map[string]bool, message string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+		defer cancel()
+		var failed []string
+		for name, enable := range flags {
+			if err := m.service.SetWatchBinary(ctx, name, enable); err != nil {
+				failed = append(failed, name)
+			}
+		}
+		if len(failed) > 0 {
+			sort.Strings(failed)
+			return actionResultMsg{
+				message: fmt.Sprintf("%s (failed: %s)", message, strings.Join(failed, ", ")),
+				isError: true,
+			}
+		}
+		return actionResultMsg{message: message, isError: false}
 	}
 }
 
