@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## v0.11.0 - 2026-09-29
+#### Features
+- (**modules**) seed duckduckgo web search module by default - (93ebc92) - Mark Fenderov
+
+- - -
+
 ## v0.10.0 - 2026-09-27
 #### Features
 - TUI watch toggle and hotswap visibility - (c384364) - mfenderov
