@@ -515,6 +515,33 @@ func TestPopulateDefaultModules_OAuthEndpointsValid(t *testing.T) {
 	}
 }
 
+func TestPopulateDefaultModules_DuckDuckGoEnabled(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.DefaultConfig()
+	populateDefaultModules(cfg)
+
+	ddg, ok := cfg.Modules["duckduckgo"]
+	if !ok {
+		t.Fatal("expected duckduckgo module in default config")
+	}
+	if ddg.Disabled {
+		t.Fatal("expected duckduckgo module to be enabled by default")
+	}
+	if ddg.Transport != domain.TransportStdio {
+		t.Fatalf("expected duckduckgo transport %q, got %q", domain.TransportStdio, ddg.Transport)
+	}
+	if ddg.Command != "uvx" {
+		t.Fatalf("expected duckduckgo command uvx, got %q", ddg.Command)
+	}
+	if len(ddg.Args) != 1 || ddg.Args[0] != "duckduckgo-mcp-server==0.7.0" {
+		t.Fatalf("expected pinned duckduckgo-mcp-server arg, got %v", ddg.Args)
+	}
+	if err := ddg.Validate(); err != nil {
+		t.Fatalf("expected duckduckgo config to validate, got %v", err)
+	}
+}
+
 func TestDefaultPaths(t *testing.T) {
 	t.Parallel()
 

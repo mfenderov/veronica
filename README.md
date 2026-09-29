@@ -197,7 +197,7 @@ On first `serve`, Veronica warns (to stderr, never fails the daemon) when an ena
 
 ```text
 Missing prerequisites:
-- markitdown: command "uvx" not found. Install with: brew install uv (then uvx markitdown-mcp).
+- markitdown: command "uvx" not found. Install with: brew install uv (then uvx markitdown-mcp or uvx duckduckgo-mcp-server).
 ```
 
 Run `veronica doctor` anytime to re-check config, credentials, health, and binaries.
@@ -460,6 +460,12 @@ modules:
   mark42:
     transport: stdio
     command: /opt/homebrew/bin/mark42-server
+
+  # Local stdio MCP via uvx (no API key required)
+  duckduckgo:
+    transport: stdio
+    command: uvx
+    args: [duckduckgo-mcp-server==0.7.0]
 
   # Remote MCPs
   atlassian:

@@ -610,6 +610,12 @@ func populateDefaultModules(cfg *config.Config) {
 		Args:      []string{"--yes", "@upstash/context7-mcp@3.1.0"},
 	})
 	cfg.AddModule(domain.ModuleConfig{
+		Name:      "duckduckgo",
+		Transport: domain.TransportStdio,
+		Command:   "uvx",
+		Args:      []string{"duckduckgo-mcp-server==0.7.0"},
+	})
+	cfg.AddModule(domain.ModuleConfig{
 		Name:      "slack",
 		Transport: domain.TransportHTTP,
 		URL:       "https://mcp.slack.com/mcp",
@@ -825,7 +831,7 @@ func printPrerequisites(w io.Writer, missing []prerequisite) {
 func installHint(command string) string {
 	switch filepath.Base(command) {
 	case "uvx":
-		return "Install with: brew install uv (then uvx markitdown-mcp)."
+		return "Install with: brew install uv (then uvx markitdown-mcp or uvx duckduckgo-mcp-server)."
 	case "npx":
 		return "Install with: brew install node (then npx -y mcp-remote)."
 	case "mark42-server":
