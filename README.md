@@ -461,18 +461,28 @@ modules:
     transport: stdio
     command: /opt/homebrew/bin/mark42-server
 
-  # Remote MCPs
+  # Remote MCPs (OAuth: register your own OAuth app with the provider,
+  # then fill in oauth.client_id / client_secret below)
   atlassian:
     transport: http
     url: https://mcp.atlassian.com/v2/mcp
+    oauth:
+      client_id: YOUR-ATLASSIAN-CLIENT-ID
 
   slack:
     transport: http
     url: https://mcp.slack.com/mcp
+    oauth:
+      client_id: YOUR-SLACK-CLIENT-ID
 ```
 
 ### Automated OAuth & Secrets Lifecycle
-- **Automatic Defaults & Discovery**: Endpoints, Dynamic Client Registration (RFC 7591), and required scopes are discovered from downstream metadata (`/.well-known/oauth-protected-resource`) or seeded by Veronica defaults.
+- **User-Supplied Credentials**: OAuth `client_id`/`client_secret` live only in your
+  `~/.config/veronica/config.yaml` (never in the repo or defaults). Obtain them by
+  registering an OAuth app with the provider, then run `veronica doctor` to verify.
+- **Automatic Defaults & Discovery**: Endpoint URLs, required scopes, callback ports,
+  and extra auth params are seeded by Veronica defaults; Dynamic Client Registration
+  (RFC 7591) metadata (`/.well-known/oauth-protected-resource`) is used where available.
 - **Interactive Consent**: Triggering re-auth in the TUI (or calling `veronica_reauth_module`) automatically opens your browser for OAuth 2.0 PKCE consent and captures the callback on a local listener.
 - **Transparent Token Management**: Tokens, refresh cycles, and header injections are persisted in `~/.config/veronica/auth.json`. You never have to manually author raw credentials, scopes, or tokens.
 

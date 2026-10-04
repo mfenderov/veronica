@@ -51,6 +51,7 @@ func oauthModule(name string) domain.ModuleConfig {
 		URL:       "https://mcp.example.com/sse",
 		OAuth: &domain.OAuthClientConfig{
 			ServerName: name,
+			ClientID:   "test-client-id",
 			AuthURL:    "https://auth.example.com/authorize",
 			TokenURL:   "https://auth.example.com/token",
 		},
@@ -59,6 +60,26 @@ func oauthModule(name string) domain.ModuleConfig {
 
 func stdioModule(name string) domain.ModuleConfig {
 	return domain.ModuleConfig{Name: name, Transport: domain.TransportStdio, Command: "/usr/bin/true"}
+}
+
+func TestDiagnoseReportsMissingClientIDForOAuthModule(t *testing.T) {
+	handler := meta.NewHandler(registry.New(), newDiagnoseStore(t), &supervisedFactory{})
+
+	mod := oauthModule("atlassian")
+	mod.OAuth.ClientID = ""
+
+	diags := handler.Diagnose(t.Context(), []domain.ModuleConfig{mod}, time.Now())
+
+	diag, ok := findDiagnostic(diags, "atlassian", "auth")
+	if !ok {
+		t.Fatalf("expected an auth diagnostic for atlassian, got %+v", diags)
+	}
+	if diag.Severity != meta.DiagnosticError {
+		t.Fatalf("missing client_id should be an error, got %q", diag.Severity)
+	}
+	if !strings.Contains(diag.Message, "client_id") {
+		t.Fatalf("expected message to explain the missing client_id, got %q", diag.Message)
+	}
 }
 
 func TestDiagnoseReportsMissingTokenForOAuthModule(t *testing.T) {

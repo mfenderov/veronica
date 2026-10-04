@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +92,28 @@ func TestOAuthManagerRefresh_KeepsConfiguredScopesWhenProviderOmitsScope(t *test
 	}
 	if !slices.Equal(tok.Scopes, []string{"chat:write"}) {
 		t.Fatalf("Scopes = %v, want [chat:write]", tok.Scopes)
+	}
+}
+
+func TestOAuthManagerStartInteractiveFlow_RejectsMissingClientID(t *testing.T) {
+	t.Parallel()
+
+	store, err := auth.NewFileStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	mgr := auth.NewOAuthManager(store, http.DefaultClient)
+	cfg := domain.OAuthClientConfig{
+		ServerName:  "atlassian",
+		AuthURL:     "https://auth.atlassian.com/authorize",
+		TokenURL:    "https://auth.atlassian.com/oauth/token",
+		RedirectURL: "http://localhost:9091/oauth/callback",
+	}
+	if _, err := mgr.StartInteractiveFlow(t.Context(), cfg); err == nil {
+		t.Fatal("expected error for missing client_id")
+	} else if !strings.Contains(err.Error(), "client_id") {
+		t.Fatalf("expected client_id error, got: %v", err)
 	}
 }
 

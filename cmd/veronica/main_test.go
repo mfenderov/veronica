@@ -310,7 +310,7 @@ func TestDoctorCmd_ReportsMissingOAuthToken(t *testing.T) {
 		Name:      "atlassian",
 		Transport: domain.TransportHTTP,
 		URL:       "https://mcp.atlassian.com/v1/sse",
-		OAuth:     &domain.OAuthClientConfig{ServerName: "atlassian"},
+		OAuth:     &domain.OAuthClientConfig{ServerName: "atlassian", ClientID: "test-client-id"},
 	})
 	if err := cfg.Save(cfgPath); err != nil {
 		t.Fatalf("failed to save config: %v", err)
@@ -493,8 +493,8 @@ func TestPopulateDefaultModules_OAuthEndpointsValid(t *testing.T) {
 	if atlassian.OAuth.TokenURL != "https://auth.atlassian.com/oauth/token" {
 		t.Fatalf("expected atlassian TokenURL https://auth.atlassian.com/oauth/token, got %s", atlassian.OAuth.TokenURL)
 	}
-	if atlassian.OAuth.ClientID == "" || atlassian.OAuth.ClientSecret == "" {
-		t.Fatal("expected atlassian ClientID and ClientSecret to be set")
+	if atlassian.OAuth.ClientID != "" || atlassian.OAuth.ClientSecret != "" {
+		t.Fatal("expected no hardcoded ClientID or ClientSecret in defaults; users supply their own via config.yaml")
 	}
 	if atlassian.OAuth.AuthParams == nil || atlassian.OAuth.AuthParams["audience"] != "api.atlassian.com" {
 		t.Fatalf("expected audience param api.atlassian.com, got %v", atlassian.OAuth.AuthParams)

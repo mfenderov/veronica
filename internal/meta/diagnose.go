@@ -116,9 +116,14 @@ func (h *Handler) diagnoseAuth(ctx context.Context, cfg domain.ModuleConfig, now
 
 	diag := Diagnostic{Module: cfg.Name, Check: checkAuth, Severity: DiagnosticError}
 
+	if strings.TrimSpace(cfg.OAuth.ClientID) == "" {
+		diag.Message = fmt.Sprintf("oauth client_id is not configured for %s; set oauth.client_id in config.yaml", serverName)
+		return diag
+	}
+
 	token, err := h.authStore.GetToken(ctx, serverName)
 	if errors.Is(err, domain.ErrTokenNotFound) || (err == nil && token == nil) {
-		diag.Message = fmt.Sprintf("no token for %s; run: veronica reauth %s", serverName, cfg.Name)
+		diag.Message = fmt.Sprintf("no token for %s; authenticate via TUI (A) or veronica_reauth_module for %s", serverName, cfg.Name)
 		return diag
 	}
 	if err != nil {

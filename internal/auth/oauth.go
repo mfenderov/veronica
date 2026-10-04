@@ -210,6 +210,9 @@ func (m *OAuthManager) StartInteractiveFlow(ctx context.Context, cfg domain.OAut
 	if cfg.AuthURL == "" {
 		return nil, errors.New("auth_url is required for interactive OAuth flow")
 	}
+	if strings.TrimSpace(cfg.ClientID) == "" {
+		return nil, fmt.Errorf("oauth client_id is not configured for %s: set oauth.client_id in config.yaml", cfg.ServerName)
+	}
 
 	code, verifier, err := m.runInteractiveConsent(ctx, cfg)
 	if err != nil {

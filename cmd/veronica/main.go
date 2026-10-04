@@ -562,12 +562,10 @@ func populateDefaultModules(cfg *config.Config) {
 		Transport: domain.TransportHTTP,
 		URL:       "https://mcp.atlassian.com/v2/mcp",
 		OAuth: &domain.OAuthClientConfig{
-			ServerName:   "atlassian",
-			ClientID:     "REDACTED-ATLASSIAN-CLIENT-ID",
-			ClientSecret: "REDACTED-ATLASSIAN-CLIENT-SECRET",
-			AuthURL:      "https://auth.atlassian.com/authorize",
-			TokenURL:     "https://auth.atlassian.com/oauth/token",
-			RedirectURL:  "http://localhost:9091/oauth/callback",
+			ServerName:  "atlassian",
+			AuthURL:     "https://auth.atlassian.com/authorize",
+			TokenURL:    "https://auth.atlassian.com/oauth/token",
+			RedirectURL: "http://localhost:9091/oauth/callback",
 			AuthParams: map[string]string{
 				"audience": "api.atlassian.com",
 				"prompt":   "consent",
@@ -615,7 +613,6 @@ func populateDefaultModules(cfg *config.Config) {
 		URL:       "https://mcp.slack.com/mcp",
 		OAuth: &domain.OAuthClientConfig{
 			ServerName:  "slack",
-			ClientID:    "REDACTED-SLACK-CLIENT-ID",
 			AuthURL:     "https://slack.com/oauth/v2_user/authorize",
 			TokenURL:    "https://slack.com/api/oauth.v2.user.access",
 			RedirectURL: "http://localhost:3118/callback",
