@@ -3,6 +3,7 @@ package registry_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -92,13 +93,12 @@ func TestRegistryRegisterAndList(t *testing.T) {
 		t.Fatalf("expected 1 module, got %d", len(modules))
 	}
 
-	// Verify aggregated tools list (2 namespaced tools + 2 compatibility aliases)
-	tools := reg.ListTools()
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
+	var names []string
+	for _, tool := range reg.ListTools() {
+		names = append(names, tool.Name)
 	}
-	if tools[0].Name != "mark42_search_nodes" {
-		t.Fatalf("expected namespaced tool name mark42_search_nodes, got %s", tools[0].Name)
+	if want := []string{"mark42_search_nodes", "mark42_create_entity"}; !slices.Equal(names, want) {
+		t.Errorf("listed tools = %v, want %v", names, want)
 	}
 
 	// Verify namespaced tool routing
@@ -112,15 +112,8 @@ func TestRegistryRegisterAndList(t *testing.T) {
 		t.Fatalf("unexpected result content: %+v", res)
 	}
 
-	// Verify fallback tool routing
-	res2, err := reg.CallTool(t.Context(), domain.ToolCall{
-		ToolName: "search_nodes",
-	})
-	if err != nil {
-		t.Fatalf("CallTool with fallback name failed: %v", err)
-	}
-	if len(res2.Content) == 0 || res2.Content[0].Text != "result from mark42" {
-		t.Fatalf("unexpected result content: %+v", res2)
+	if _, err := reg.CallTool(t.Context(), domain.ToolCall{ToolName: "search_nodes"}); !errors.Is(err, domain.ErrToolNotFound) {
+		t.Errorf("bare tool name: expected ErrToolNotFound, got %v", err)
 	}
 
 	// Verify unknown tool
@@ -196,8 +189,8 @@ func TestRegistryDeactivate(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 
-	if len(reg.ListTools()) != 2 {
-		t.Fatalf("expected 2 tools before deactivate (namespaced + fallback), got %d", len(reg.ListTools()))
+	if len(reg.ListTools()) != 1 {
+		t.Fatalf("expected 1 tool before deactivate, got %d", len(reg.ListTools()))
 	}
 
 	// Deactivate existing
@@ -279,7 +272,7 @@ func TestRegistry_ListModulesDeterministicOrder(t *testing.T) {
 	}
 }
 
-func TestRegistry_AliasCollisionFirstWins(t *testing.T) {
+func TestRegistry_NamespacesSharedToolNames(t *testing.T) {
 	t.Parallel()
 
 	reg := registry.New()
@@ -315,31 +308,21 @@ func TestRegistry_AliasCollisionFirstWins(t *testing.T) {
 		t.Fatalf("Register beta failed: %v", err)
 	}
 
-	// Both namespaced tools must keep working regardless of the collision.
-	for _, name := range []string{"alpha_search", "beta_search"} {
-		if _, err := reg.CallTool(t.Context(), domain.ToolCall{ToolName: name}); err != nil {
+	for name, want := range map[string]string{
+		"alpha_search": "result from alpha",
+		"beta_search":  "result from beta",
+	} {
+		res, err := reg.CallTool(t.Context(), domain.ToolCall{ToolName: name})
+		if err != nil {
 			t.Fatalf("CallTool %s failed: %v", name, err)
 		}
-	}
-
-	// The raw alias must resolve to exactly one module — the first in sort order.
-	res, err := reg.CallTool(t.Context(), domain.ToolCall{ToolName: "search"})
-	if err != nil {
-		t.Fatalf("CallTool with colliding alias failed: %v", err)
-	}
-	if len(res.Content) == 0 || res.Content[0].Text != "result from alpha" {
-		t.Fatalf("expected colliding alias to route to alpha, got: %+v", res)
-	}
-
-	// The alias must appear exactly once in the aggregated catalog.
-	count := 0
-	for _, tool := range reg.ListTools() {
-		if tool.Name == "search" {
-			count++
+		if len(res.Content) != 1 || res.Content[0].Text != want {
+			t.Errorf("CallTool %s = %+v, want %q", name, res, want)
 		}
 	}
-	if count != 1 {
-		t.Fatalf("expected alias search exactly once in catalog, got %d", count)
+
+	if _, err := reg.CallTool(t.Context(), domain.ToolCall{ToolName: "search"}); !errors.Is(err, domain.ErrToolNotFound) {
+		t.Errorf("shared bare name: expected ErrToolNotFound, got %v", err)
 	}
 }
 

@@ -169,28 +169,6 @@ func (r *Registry) rebuildCatalogLocked() {
 
 			r.toolRoutes[exposedName] = route
 			r.aggregated = append(r.aggregated, exposedTool)
-
-			// The raw name is a convenience alias: the first module in sort order
-			// wins so the outcome is deterministic across rebuilds. Colliding
-			// modules stay reachable via their namespaced names.
-			if exposedName != t.Name {
-				if existing, collides := r.toolRoutes[t.Name]; collides {
-					slog.Warn("alias collision: tool claimed by first module, use namespaced name for the other",
-						"tool", t.Name,
-						"winner", existing.moduleName,
-						"loser", modName,
-					)
-				} else {
-					r.toolRoutes[t.Name] = route
-					aliasTool := domain.Tool{
-						Name:         t.Name,
-						Description:  exposedDesc,
-						InputSchema:  t.InputSchema,
-						OriginModule: modName,
-					}
-					r.aggregated = append(r.aggregated, aliasTool)
-				}
-			}
 		}
 	}
 }

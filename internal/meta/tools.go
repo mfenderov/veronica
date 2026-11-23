@@ -148,17 +148,20 @@ func (h *Handler) DeployModule(ctx context.Context, p DeployParams) (DeployResul
 		return DeployResult{}, fmt.Errorf("failed to register module: %w", err)
 	}
 
-	toolNames := make([]string, 0, len(mod.Tools))
-	for _, t := range mod.Tools {
-		toolNames = append(toolNames, t.Name)
-	}
-
 	return DeployResult{
 		Name:    mod.Name,
 		Status:  mod.Status,
-		Tools:   toolNames,
-		Message: fmt.Sprintf("Module %s successfully deployed with %d tool(s)", mod.Name, len(toolNames)),
+		Tools:   exposedToolNames(mod),
+		Message: fmt.Sprintf("Module %s successfully deployed with %d tool(s)", mod.Name, len(mod.Tools)),
 	}, nil
+}
+
+func exposedToolNames(mod *domain.Module) []string {
+	names := make([]string, 0, len(mod.Tools))
+	for _, tool := range mod.Tools {
+		names = append(names, registry.FormatExposedToolName(mod.Name, tool.Name))
+	}
+	return names
 }
 
 // RecallModule unregisters and stops the specified module.
@@ -341,10 +344,6 @@ func (h *Handler) ListModules(ctx context.Context) ([]ModuleSummary, error) {
 	summaries := make([]ModuleSummary, 0, len(modules))
 
 	for _, m := range modules {
-		toolNames := make([]string, 0, len(m.Tools))
-		for _, t := range m.Tools {
-			toolNames = append(toolNames, t.Name)
-		}
 		target := m.Config.Command
 		if m.Config.URL != "" {
 			target = m.Config.URL
@@ -356,7 +355,7 @@ func (h *Handler) ListModules(ctx context.Context) ([]ModuleSummary, error) {
 			Transport:   m.Config.Transport,
 			Status:      m.Status,
 			Target:      target,
-			Tools:       toolNames,
+			Tools:       exposedToolNames(m),
 			Error:       m.ErrorMessage,
 			WatchBinary: &watch,
 			WatchStale:  rec.stale,
