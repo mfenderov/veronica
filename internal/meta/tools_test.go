@@ -56,7 +56,7 @@ func (f *mockClientFactory) CreateClient(ctx context.Context, cfg domain.ModuleC
 	}
 	return &mockRunningClient{
 		tools: []domain.Tool{
-			{Name: cfg.Name + "_query", OriginModule: cfg.Name},
+			{Name: "query", OriginModule: cfg.Name},
 		},
 	}, nil
 }
@@ -144,7 +144,15 @@ func TestMetaToolsLifecycle(t *testing.T) {
 		t.Fatalf("expected status active, got %s", deployRes.Status)
 	}
 	if len(deployRes.Tools) != 1 || deployRes.Tools[0] != "postgres-cart_query" {
-		t.Fatalf("unexpected tools: %+v", deployRes.Tools)
+		t.Errorf("deployed tools = %v, want [postgres-cart_query]", deployRes.Tools)
+	}
+
+	res, err = handler.ListModules(ctx)
+	if err != nil {
+		t.Fatalf("ListModules failed: %v", err)
+	}
+	if len(res) != 1 || len(res[0].Tools) != 1 || res[0].Tools[0] != "postgres-cart_query" {
+		t.Errorf("expected one module listing [postgres-cart_query], got %+v", res)
 	}
 
 	// 3. Verify tool is callable through registry

@@ -225,7 +225,9 @@ modules:
 ```
 *(Use your local path — run `which mark42-server`. On Apple Silicon Homebrew it is typically `/opt/homebrew/bin/mark42-server`.)*
 
-Veronica immediately spawns Mark42, introspects its capabilities, and mounts its tools (`mark42_search_nodes`, `mark42_read_graph`, etc.) into the live catalog. It also registers un-prefixed aliases (`search_nodes`) for seamless backward compatibility and broadcasts an MCP `notifications/tools/list_changed` event to all connected clients.
+Veronica starts Mark42, adds its tools to the catalog, and notifies connected clients with `notifications/tools/list_changed`.
+
+Veronica exposes only namespaced tool names, such as `mark42_search_nodes`. Names that already start with the module prefix stay unchanged. If a client uses a short name such as `search_nodes`, replace it with the full name.
 
 ### 3. Connect OpenCode to Veronica (Once)
 In `~/.config/opencode/opencode.jsonc`, point OpenCode to Veronica (OpenCode V2 shape, Streamable HTTP endpoint):
@@ -254,7 +256,7 @@ Open your OpenCode chat and ask:
 > *"What architecture decisions do we have recorded for our Go microservices?"*
 
 **Behind the Scenes:**
-1. OpenCode issues an MCP tool call: `mark42_search_nodes(query="Go microservices")` (or `search_nodes(...)`).
+1. OpenCode calls `mark42_search_nodes(query="Go microservices")`.
 2. Veronica catches the request on `127.0.0.1:9090/mcp` and routes it over stdio JSON-RPC to the supervised `mark42-server` process.
 3. Mark42 queries its local knowledge graph and returns the entities.
 4. Veronica delivers the payload back to OpenCode's context window with sub-millisecond dispatch.

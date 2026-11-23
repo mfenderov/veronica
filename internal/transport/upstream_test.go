@@ -565,6 +565,9 @@ func TestUpstreamServer_RemovesRecalledModuleTools(t *testing.T) {
 	if !contains(before, "ephemeral_temp_tool") {
 		t.Fatalf("expected ephemeral_temp_tool before recall, got: %v", before)
 	}
+	if contains(before, "temp_tool") {
+		t.Errorf("unexpected bare tool name before recall: %v", before)
+	}
 
 	if err := reg.Unregister("ephemeral"); err != nil {
 		t.Fatalf("Unregister failed: %v", err)
@@ -573,9 +576,6 @@ func TestUpstreamServer_RemovesRecalledModuleTools(t *testing.T) {
 	after := listToolNames()
 	if contains(after, "ephemeral_temp_tool") {
 		t.Fatalf("expected ephemeral_temp_tool to be removed after recall, got: %v", after)
-	}
-	if contains(after, "temp_tool") {
-		t.Fatalf("expected temp_tool alias to be removed after recall, got: %v", after)
 	}
 	if !contains(after, "veronica_status") {
 		t.Fatalf("expected custom veronica_status tool to survive recall, got: %v", after)
