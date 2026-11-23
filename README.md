@@ -541,6 +541,18 @@ replacement for shared-mode authentication.
 
 ---
 
+## Releases
+
+After CI passes on `main`, the release job tags the tested commit without
+pushing a version commit to `main`. Cocogitto selects the next version from
+conventional commits. If there is no conventional bump, or if the highest
+stable tag is not in the tested commit's history, CI increments the patch
+version. GoReleaser publishes the binaries and release notes on GitHub and
+updates the Homebrew cask. CI does not update `CHANGELOG.md`.
+
+If a release fails after CI pushes its tag, rerun the `release` workflow for
+that tag. Do not move the tag or create another version for the same commit.
+
 ## Quality & Testing Gates
 
 ```bash

@@ -46,6 +46,14 @@ jobs:
       - name: CRAP gate
         run: make crap
 
+      - name: Set up Cocogitto
+        uses: cocogitto/cocogitto-action@v4
+        with:
+          command: --version
+
+      - name: Test release version selection
+        run: bash .github/scripts/test-release-tag.sh
+
   build:
     needs: [lint, test]
     runs-on: ubuntu-latest
@@ -73,32 +81,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Record latest tag
-        id: before
-        run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || echo '')" >> "$GITHUB_OUTPUT"
-
-      - name: Auto bump version and tag
+      - name: Set up Cocogitto
         uses: cocogitto/cocogitto-action@v4
         with:
-          command: bump
-          args: --auto
-          git-user: 'github-actions[bot]'
-          git-user-email: 'github-actions[bot]@users.noreply.github.com'
+          command: --version
 
-      # Bot pushes made with GITHUB_TOKEN do not trigger push-event workflows,
-      # but GITHUB_TOKEN with actions:write CAN trigger workflow_dispatch events.
-      - name: Push version commit and tag, then trigger release
+      # Pushes made with GITHUB_TOKEN cannot trigger another push workflow.
+      - name: Tag tested commit and dispatch release
         run: |
-          BEFORE="${{ steps.before.outputs.tag }}"
-          AFTER="$(git describe --tags --abbrev=0 2>/dev/null || echo '')"
-          if [ -z "$AFTER" ] || [ "$AFTER" = "$BEFORE" ]; then
-            echo "Auto bump did not detect feat/fix — falling back to patch bump..."
-            cog bump --patch
-            AFTER="$(git describe --tags --abbrev=0 2>/dev/null || echo '')"
+          main_ref=$(git ls-remote --exit-code origin refs/heads/main)
+          if [[ $main_ref != "$GITHUB_SHA"$'\t'refs/heads/main ]]; then
+            echo 'A newer commit is on main; skipping this release.'
+            exit 0
           fi
-          git push origin main
-          git push origin "$AFTER"
-          echo "Triggering release workflow for $AFTER..."
-          gh workflow run release.yml --ref "$AFTER"
+          git fetch --tags origin
+          tag=$(bash .github/scripts/release-tag.sh)
+          git push origin "refs/tags/$tag"
+          state=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+            --jq ".[] | select(.tag_name == \"$tag\" and (.draft | not)) | .tag_name")
+          if [[ -n $state ]]; then
+            echo "$tag is already published."
+          else
+            gh workflow run release.yml --ref "$tag"
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
